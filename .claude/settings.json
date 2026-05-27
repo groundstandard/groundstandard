@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -X POST https://qkwiauivaerrrbemdlyj.supabase.co/rest/v1/rpc/rpc_form_submissions_list -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFrd2lhdWl2YWVycnJiZW1kbHlqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc2MDg3MTMsImV4cCI6MjA3MzE4NDcxM30.iZcv-LIQQtMGBYD4it5hZRf6kFTVApng-7upJ12eXV4' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFrd2lhdWl2YWVycnJiZW1kbHlqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc2MDg3MTMsImV4cCI6MjA3MzE4NDcxM30.iZcv-LIQQtMGBYD4it5hZRf6kFTVApng-7upJ12eXV4' -H 'Content-Type: application/json' -d '{}' -o /tmp/fs.json -w 'HTTP_STATUS:%{http_code}\\\\n')",
+      "Read(//tmp/**)",
+      "Bash(jq 'length' fs.json)",
+      "Bash(python3 -c \"import json;print\\(len\\(json.load\\(open\\('fs.json'\\)\\)\\)\\)\")",
+      "Bash(python3 -)",
+      "Bash(cd /c/Users/Ongoing/Desktop/groundstandard/groundstandard && cat package.json | grep -A15 '\"scripts\"')",
+      "Read(//c/c/Users/Ongoing/Desktop/groundstandard/groundstandard/**)"
+    ]
+  }
+}

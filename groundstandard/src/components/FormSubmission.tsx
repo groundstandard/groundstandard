@@ -6,6 +6,12 @@ type FormSubmissionProps = {
   onBackToLaunch?: () => void;
 };
 
+// How often to silently re-pull submissions so the list stays current without a
+// manual refresh. We poll the RPC (which is SECURITY DEFINER and returns every
+// row) rather than relying on Supabase realtime: anon RLS hides the rows from a
+// direct subscription, so postgres_changes events never reach this client.
+const POLL_INTERVAL_MS = 30000;
+
 type FormSubmissionRow = {
   id: number;
   first_name: string | null;
@@ -28,6 +34,7 @@ export default function FormSubmission({ onBackToLaunch }: FormSubmissionProps) 
   const [rowsLoading, setRowsLoading] = useState(false);
   const [rowsError, setRowsError] = useState<string | null>(null);
   const [rows, setRows] = useState<FormSubmissionRow[]>([]);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedWebsite, setSelectedWebsite] = useState<string | null>(null);
   const [selectedSubmissionIds, setSelectedSubmissionIds] = useState<Set<number>>(() => new Set());
@@ -67,24 +74,53 @@ export default function FormSubmission({ onBackToLaunch }: FormSubmissionProps) 
     }).format(d);
   }, []);
 
-  const loadRows = useCallback(async () => {
-    setRowsLoading(true);
-    setRowsError(null);
+  // `silent` powers the background auto-refresh: it skips the spinner and keeps
+  // the current rows on a transient failure, so polling never flickers the UI.
+  const loadRows = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent ?? false;
+    if (!silent) {
+      setRowsLoading(true);
+      setRowsError(null);
+    }
     try {
       const { data, error } = await supabase.rpc('rpc_form_submissions_list');
       if (error) throw error;
       setRows(Array.isArray(data) ? (data as FormSubmissionRow[]) : []);
+      setLastUpdated(new Date());
+      setRowsError(null);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Failed to load records';
       setRowsError(msg);
-      setRows([]);
+      if (!silent) setRows([]);
     } finally {
-      setRowsLoading(false);
+      if (!silent) setRowsLoading(false);
     }
   }, []);
 
   useEffect(() => {
     void loadRows();
+  }, [loadRows]);
+
+  // Auto-refresh: poll on an interval and re-pull the moment the tab regains
+  // focus. Polling pauses while the tab is hidden to avoid needless requests.
+  useEffect(() => {
+    const refresh = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void loadRows({ silent: true });
+    };
+    const intervalId = window.setInterval(refresh, POLL_INTERVAL_MS);
+    const onFocus = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        void loadRows({ silent: true });
+      }
+    };
+    document.addEventListener('visibilitychange', onFocus);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onFocus);
+      window.removeEventListener('focus', onFocus);
+    };
   }, [loadRows]);
 
   useEffect(() => {
@@ -311,9 +347,21 @@ export default function FormSubmission({ onBackToLaunch }: FormSubmissionProps) 
             </div>
 
             <div className="flex items-center gap-2">
+              <div className="hidden sm:flex flex-col items-end leading-tight mr-1">
+                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                  </span>
+                  Auto-updating
+                </span>
+                {lastUpdated && (
+                  <span className="text-[11px] text-gray-500">Updated {formatTimeOnly(lastUpdated.toISOString())}</span>
+                )}
+              </div>
               <button
                 type="button"
-                onClick={loadRows}
+                onClick={() => loadRows()}
                 disabled={rowsLoading}
                 className="inline-flex items-center px-4 py-2.5 text-sm font-semibold text-gray-800 bg-white/90 hover:bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 disabled:opacity-50"
               >
