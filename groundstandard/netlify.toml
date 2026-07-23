@@ -38,13 +38,13 @@
 
 [[redirects]]
   from = "/api/video-caption"
-  to = "https://groundstandard.app.n8n.cloud/webhook/video-caption"
+  to = "https://primary-production-aa130.up.railway.app/webhook/video-caption"
   status = 200
   force = true
 
 [[redirects]]
   from = "/api/image-batch"
-  to = "https://groundstandard.app.n8n.cloud/webhook/image-batch"
+  to = "https://primary-production-aa130.up.railway.app/webhook/image-batch"
   status = 200
   force = true
 
