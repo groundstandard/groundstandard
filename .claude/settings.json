@@ -7,7 +7,10 @@
       "Bash(python3 -c \"import json;print\\(len\\(json.load\\(open\\('fs.json'\\)\\)\\)\\)\")",
       "Bash(python3 -)",
       "Bash(cd /c/Users/Ongoing/Desktop/groundstandard/groundstandard && cat package.json | grep -A15 '\"scripts\"')",
-      "Read(//c/c/Users/Ongoing/Desktop/groundstandard/groundstandard/**)"
+      "Read(//c/c/Users/Ongoing/Desktop/groundstandard/groundstandard/**)",
+      "Bash(git commit -m ' *)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(git credential *)"
     ]
   }
 }
