@@ -50,14 +50,8 @@
   force = true
 
 [[redirects]]
-  from = "/api/image"
-  to = "https://groundstandard.app.n8n.cloud/webhook/image"
-  status = 200
-  force = true
-
-[[redirects]]
   from = "/api/scrapper"
-  to = "https://groundstandard.app.n8n.cloud/webhook/scrapper"
+  to = "https://primary-production-aa130.up.railway.app/webhook/scrapper"
   status = 200
   force = true
 

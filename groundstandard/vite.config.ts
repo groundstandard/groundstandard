@@ -48,14 +48,8 @@ export default defineConfig({
         secure: true,
         rewrite: (path) => path.replace(/^\/api\/image-batch/, '/webhook/image-batch'),
       },
-      '/api/image': {
-        target: 'https://groundstandard.app.n8n.cloud',
-        changeOrigin: true,
-        secure: true,
-        rewrite: (path) => path.replace(/^\/api\/image/, '/webhook/image'),
-      },
       '/api/scrapper': {
-        target: 'https://groundstandard.app.n8n.cloud',
+        target: 'https://primary-production-aa130.up.railway.app',
         changeOrigin: true,
         secure: true,
         rewrite: (path) => path.replace(/^\/api\/scrapper/, '/webhook/scrapper'),
