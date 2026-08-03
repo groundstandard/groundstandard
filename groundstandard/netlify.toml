@@ -9,31 +9,31 @@
 # Proxy the same path you use locally to the n8n cloud webhook in production
 [[redirects]]
   from = "/api/rewrite"
-  to = "https://primary-production-aa130.up.railway.app/webhook/rewrite"
+  to = "https://groundstandard.app.n8n.cloud/webhook/rewrite"
   status = 200
   force = true
 
 [[redirects]]
   from = "/api/research"
-  to = "https://primary-production-aa130.up.railway.app/webhook/Research"
+  to = "https://groundstandard.app.n8n.cloud/webhook/Research"
   status = 200
   force = true
 
 [[redirects]]
   from = "/api/write"
-  to = "https://primary-production-aa130.up.railway.app/webhook/Write"
+  to = "https://groundstandard.app.n8n.cloud/webhook/Write"
   status = 200
   force = true
 
 [[redirects]]
   from = "/api/tag"
-  to = "https://primary-production-aa130.up.railway.app/webhook/Tag"
+  to = "https://groundstandard.app.n8n.cloud/webhook/Tag"
   status = 200
   force = true
 
 [[redirects]]
   from = "/api/chat-bot"
-  to = "https://primary-production-aa130.up.railway.app/webhook/chat-bot"
+  to = "https://groundstandard.app.n8n.cloud/webhook/chat-bot"
   status = 200
   force = true
 

@@ -737,7 +737,7 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
       ...(titleKey ? { [titleKey]: { id: article.id as number | string | undefined, title: article.title, startedAt, prevDocLink, prevContent } } : {}),
     }));
     try {
-      const resp = await fetch('https://primary-production-aa130.up.railway.app/webhook/rewrite', {
+      const resp = await fetch('https://groundstandard.app.n8n.cloud/webhook/rewrite', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -867,7 +867,7 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
       }));
     } catch { void 0; }
     try {
-      const resp = await fetch('https://primary-production-aa130.up.railway.app/webhook/generalize', {
+      const resp = await fetch('https://groundstandard.app.n8n.cloud/webhook/generalize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
