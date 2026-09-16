@@ -24,6 +24,7 @@ type LaunchPadProps = {
   onLaunchFormSubmission: () => void;
   onLaunchWebScraper: () => void;
   onLaunchImageEditor: () => void;
+  onLaunchFormBuilder: () => void;
   onLaunchUpdateFormSubmission: () => void;
 };
 
@@ -158,6 +159,19 @@ export default function LaunchPad({ onLaunchArticleGenerator, onLaunchFormSubmis
   ];
 
   const dataTools: ToolCard[] = [
+    {
+      title: 'Form Builder',
+      tagline: 'Forms We Own',
+      description: 'Build a form once and embed one line on the site. Submissions post straight to that client’s GoHighLevel. Change a field here and every site has it immediately — nothing to republish.',
+      features: ['Fields, wording and redirects', 'Straight to GoHighLevel', 'One embed, updates everywhere'],
+      icon: <ClipboardList className="w-5 h-5" />,
+      iconBg: 'bg-indigo-50 text-indigo-600',
+      accentColor: 'border-t-indigo-500',
+      buttonClass: 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/25',
+      dotColor: 'bg-indigo-500',
+      actionLabel: 'Open Tool',
+      onAction: onLaunchFormBuilder,
+    },
     {
       title: 'Form Submissions',
       tagline: 'Centralized Lead Management',

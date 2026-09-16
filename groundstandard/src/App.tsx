@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import Dashboard from './components/Dashboard';
+import FormBuilder from './components/FormBuilder';
 import FormSubmission from './components/FormSubmission';
 import LaunchPad from './components/LaunchPad';
 import LoginForm from './components/LoginForm';
@@ -74,6 +75,10 @@ function App() {
           sessionStorage.setItem('gs_selected_tool_v1', 'image_editor');
           setSelectedTool('image_editor');
         }}
+        onLaunchFormBuilder={() => {
+          sessionStorage.setItem('gs_selected_tool_v1', 'form_builder');
+          setSelectedTool('form_builder');
+        }}
         onLaunchUpdateFormSubmission={() => {
           sessionStorage.setItem('gs_selected_tool_v1', 'update_form_submission');
           setSelectedTool('update_form_submission');
@@ -86,6 +91,10 @@ function App() {
     sessionStorage.removeItem('gs_selected_tool_v1');
     setSelectedTool(null);
   };
+
+  if (selectedTool === 'form_builder') {
+    return <FormBuilder onBackToLaunch={backToLaunch} />;
+  }
 
   if (selectedTool === 'form_submission') {
     return <FormSubmission onBackToLaunch={backToLaunch} />;

@@ -1,0 +1,231 @@
+// check-form.mjs — runs public/form.js in a real DOM and watches what it sends.
+//
+// This script ends up on client websites, so "it looked right" is not a standard
+// it can be held to. Everything below is checked against what actually reaches
+// the network: the fields rendered, the validation, the GoHighLevel payload, and
+// — the one that matters most — that a dead reporting endpoint cannot stop the
+// CRM call. That separation is why every gym still got its leads through the
+// eight-week outage in July, and it is the property most easily lost in a
+// refactor.
+//
+// Run:  node scripts/check-form.mjs
+
+import fs from 'node:fs';
+import { JSDOM } from 'jsdom';
+
+const SOURCE = fs.readFileSync(new URL('../public/form.js', import.meta.url), 'utf8');
+
+const DEF = {
+  slug: 'ronin-trial',
+  name: 'Ronin BJJ free trial',
+  ghl_webhook_url: 'https://services.leadconnectorhq.com/hooks/TEST/webhook-trigger/TEST',
+  report_enabled: true,
+  redirect_enabled: true,
+  redirect_adult: 'https://example.com/adult',
+  redirect_youth: 'https://example.com/youth',
+  submit_label: 'Book my trial',
+  success_message: 'Thanks — we will call you.',
+  error_message: 'That did not go through.',
+  privacy_url: 'https://example.com/privacy',
+  terms_url: null,
+  fields: [
+    { name: 'first_name', label: 'First name', type: 'text', required: true },
+    { name: 'last_name', label: 'Last name', type: 'text', required: true },
+    { name: 'email', label: 'Email', type: 'email', required: true },
+    { name: 'phone', label: 'Phone', type: 'phone', required: false },
+    { name: 'program', label: 'Which program?', type: 'select', required: true, options: ['Adult', 'Youth'] },
+    { name: 'consent', label: 'I agree to be contacted.', type: 'checkbox', required: true },
+  ],
+};
+
+const failures = [];
+const ok = (name, extra) => console.log(`  ok   ${name}${extra ? ' — ' + extra : ''}`);
+const bad = (name, why) => { failures.push(name); console.log(`  FAIL ${name} — ${why}`); };
+const is = (name, got, want) => (got === want ? ok(name, String(got)) : bad(name, `got ${JSON.stringify(got)}, wanted ${JSON.stringify(want)}`));
+
+// One page, one form, and a fetch we can watch.
+const PAGE = 'https://roninbjj.com/trial?utm_source=fb';
+
+async function mount({ reportFails = false, webhookFails = false, definition = DEF } = {}) {
+  const dom = new JSDOM(
+    `<!doctype html><html><body><div data-gs-form="${definition.slug}"></div></body></html>`,
+    { url: PAGE, runScripts: 'outside-only' },
+  );
+  const { window } = dom;
+  const calls = [];
+
+  // jsdom will not leave the page, and window.location cannot be replaced, so
+  // the script is given its own Location that records where it tried to go.
+  const nav = { to: null };
+  var here = PAGE;
+  const loc = {
+    get href() { return here; },
+    set href(v) { nav.to = v; here = v; },
+    hostname: window.location.hostname,
+    pathname: window.location.pathname,
+    search: window.location.search,
+    assign: function (v) { this.href = v; },
+    replace: function (v) { this.href = v; },
+  };
+
+  window.fetch = (url, opts = {}) => {
+    const body = opts.body ? JSON.parse(opts.body) : null;
+    calls.push({ url, body });
+    if (url.includes('/rest/v1/forms')) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([definition]) });
+    }
+    if (url.includes('railway.app')) {
+      return reportFails ? Promise.reject(new Error('reporting is down')) : Promise.resolve({ ok: true });
+    }
+    return webhookFails ? Promise.reject(new Error('CRM refused')) : Promise.resolve({ ok: true });
+  };
+
+  // The script reads its key off its own tag.
+  const script = window.document.createElement('script');
+  script.setAttribute('data-key', 'anon-key-for-test');
+  window.document.body.appendChild(script);
+  Object.defineProperty(window.document, 'currentScript', { value: script, configurable: true });
+
+  // Shadow only `location`; everything else is the real window.
+  window.eval(`(function (location) {${SOURCE}\n})`)(loc);
+  await new Promise(r => setTimeout(r, 0));
+  return { window, doc: window.document, calls, nav };
+}
+
+const fill = (form, values) => {
+  for (const [name, value] of Object.entries(values)) {
+    const el = form.elements[name];
+    if (!el) continue;
+    if (el.type === 'checkbox') el.checked = value;
+    else el.value = value;
+  }
+};
+
+const submit = async (form, window) => {
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await new Promise(r => setTimeout(r, 0));
+};
+
+console.log('rendering:');
+{
+  const { doc, calls } = await mount();
+  const form = doc.querySelector('form.gsf');
+  form ? ok('the form renders') : bad('the form renders', 'no form element');
+  is('fields rendered', doc.querySelectorAll('.gsf-row').length, DEF.fields.length);
+  is('the button carries the wording set in the builder',
+    doc.querySelector('.gsf-btn').textContent, 'Book my trial');
+  is('the choice field has its options',
+    doc.querySelectorAll('select[name=program] option').length, 3); // placeholder + 2
+  is('required fields are marked required',
+    doc.querySelectorAll('[required]').length, 4);
+  doc.body.textContent.includes('privacy policy')
+    ? ok('the privacy link is shown')
+    : bad('the privacy link is shown', 'not in the page');
+  calls.some(c => c.url.includes('/rest/v1/forms'))
+    ? ok('the definition is read from the database, not the page')
+    : bad('the definition is read from the database, not the page', 'no fetch');
+}
+
+console.log('\nvalidation:');
+{
+  const { window, doc, calls } = await mount();
+  const form = doc.querySelector('form.gsf');
+  const before = calls.length;
+  fill(form, { first_name: 'Marco', email: 'marco@example.com', program: 'Adult', consent: true });
+  await submit(form, window);   // last_name missing
+  is('an incomplete form sends nothing', calls.length - before, 0);
+  doc.querySelector('.gsf-msg').textContent.includes('Last name')
+    ? ok('it names the field that is missing')
+    : bad('it names the field that is missing', doc.querySelector('.gsf-msg').textContent);
+
+  fill(form, { last_name: 'Alvarez', consent: false });
+  await submit(form, window);
+  is('an unticked required box also stops it', calls.length - before, 0);
+}
+
+console.log('\nwhat reaches GoHighLevel:');
+{
+  const { window, doc, calls, nav } = await mount();
+  const form = doc.querySelector('form.gsf');
+  fill(form, {
+    first_name: 'Marco', last_name: 'Alvarez', email: 'marco@example.com',
+    phone: '555 0100', program: 'Adult', consent: true,
+  });
+  await submit(form, window);
+
+  const crm = calls.find(c => c.url.includes('leadconnectorhq'));
+  crm ? ok('the CRM was called') : bad('the CRM was called', 'no call to the webhook');
+  if (crm) {
+    is('first name', crm.body.first_name, 'Marco');
+    is('email', crm.body.email, 'marco@example.com');
+    is('the tickbox goes as a boolean', crm.body.consent, true);
+    is('which form it came from', crm.body._form, 'ronin-trial');
+    is('which page it came from', crm.body._source_url, 'https://roninbjj.com/trial?utm_source=fb');
+    is('which site', crm.body._source_hostname, 'roninbjj.com');
+  }
+
+  const report = calls.find(c => c.url.includes('railway.app'));
+  report ? ok('a copy came to us as well') : bad('a copy came to us as well', 'no reporting call');
+
+  is('it sent them to the adult page', nav.to, 'https://example.com/adult');
+}
+
+console.log('\nthe separation that saved the gyms in July:');
+{
+  const { window, doc, calls, nav } = await mount({ reportFails: true });
+  const form = doc.querySelector('form.gsf');
+  fill(form, {
+    first_name: 'Dani', last_name: 'Boyd', email: 'dani@example.com',
+    program: 'Youth', consent: true,
+  });
+  await submit(form, window);
+
+  calls.some(c => c.url.includes('leadconnectorhq'))
+    ? ok('reporting is dead, the CRM still receives the lead')
+    : bad('reporting is dead, the CRM still receives the lead', 'the CRM call was skipped');
+  is('and youth goes to the youth page', nav.to, 'https://example.com/youth');
+}
+
+console.log('\nwhen the CRM itself fails:');
+{
+  const { window, doc, nav } = await mount({ webhookFails: true });
+  const form = doc.querySelector('form.gsf');
+  fill(form, {
+    first_name: 'Owen', last_name: 'Hart', email: 'owen@example.com',
+    program: 'Adult', consent: true,
+  });
+  await submit(form, window);
+
+  const msg = doc.querySelector('.gsf-msg');
+  msg.className.includes('bad') && msg.textContent === DEF.error_message
+    ? ok('the visitor is told, in the words the builder set')
+    : bad('the visitor is told', `"${msg.textContent}" (${msg.className})`);
+  doc.querySelector('.gsf-btn').disabled === false
+    ? ok('and can try again')
+    : bad('and can try again', 'the button stayed disabled');
+  nav.to
+    ? bad('a failed submission does not redirect', 'it went to ' + nav.to)
+    : ok('a failed submission does not redirect');
+}
+
+console.log('\na form with no webhook set yet:');
+{
+  const { window, doc } = await mount({
+    definition: { ...DEF, ghl_webhook_url: null, redirect_enabled: false },
+  });
+  const form = doc.querySelector('form.gsf');
+  fill(form, {
+    first_name: 'Tess', last_name: 'Dunne', email: 'tess@example.com',
+    program: 'Adult', consent: true,
+  });
+  await submit(form, window);
+  const msg = doc.querySelector('.gsf-msg');
+  msg.className.includes('ok')
+    ? ok('the visitor still gets a thank you rather than an error')
+    : bad('the visitor still gets a thank you', msg.textContent);
+}
+
+console.log(failures.length
+  ? `\n${failures.length} failed: ${failures.join(', ')}`
+  : '\nall checks passed');
+process.exit(failures.length ? 1 : 0);
