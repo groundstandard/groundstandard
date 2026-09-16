@@ -42,6 +42,51 @@
     '.gsf-fine a{color:inherit}',
   ].join('');
 
+  // Where the visitor came from. Captured on whatever page they land on and kept
+  // for the rest of the visit, because the form is rarely on that first page —
+  // otherwise every enquiry arrives with no campaign attached and the ad spend
+  // cannot be told apart from the organic traffic.
+  var ATTR_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term',
+    'utm_content', 'gclid', 'fbclid', 'msclkid'];
+
+  function attribution() {
+    var found = {};
+    var any = false;
+    try {
+      var q = new URLSearchParams(location.search);
+      ATTR_KEYS.forEach(function (k) {
+        var v = q.get(k);
+        if (v) { found[k] = v; any = true; }
+      });
+    } catch (err) { /* no URLSearchParams: the lead still goes, without campaign */ }
+
+    try {
+      if (any) {
+        sessionStorage.setItem('gs_attr', JSON.stringify(found));
+        return found;
+      }
+      var kept = sessionStorage.getItem('gs_attr');
+      if (kept) return JSON.parse(kept);
+    } catch (err) { /* private mode: attribution simply does not carry */ }
+
+    return found;
+  }
+
+  // Pushed for the site's own GTM container to pick up. We only push; loading
+  // GTM is the site's job, and on a site without it this is a harmless array.
+  // Killer B's events are the shape here, so its GA4 keeps working unchanged.
+  function track(event, fields) {
+    try {
+      var payload = { event: event };
+      Object.keys(fields || {}).forEach(function (k) {
+        if (fields[k]) { payload[k] = fields[k]; }
+      });
+      payload.page_path = location.pathname;
+      window.dataLayer = window.dataLayer || [];
+      window.dataLayer.push(payload);
+    } catch (err) { /* tracking never blocks a lead */ }
+  }
+
   function el(tag, attrs, text) {
     var n = document.createElement(tag);
     for (var k in attrs) if (attrs[k] != null) n.setAttribute(k, attrs[k]);
@@ -165,7 +210,10 @@
     btn.textContent = 'Sending…';
     msg.className = 'gsf-msg';
 
-    var payload = Object.assign({}, data, {
+    // Attribution first, so a field someone actually named utm_source on the
+    // form wins over the one read off the URL.
+    var attr = attribution();
+    var payload = Object.assign({}, attr, data, {
       _form: def.slug,
       _form_name: def.name,
       _source_url: location.href,
@@ -207,12 +255,25 @@
 
     function done(ok) {
       if (!ok) {
+        track('form_error', { form_name: def.name || def.slug, form: def.slug });
         btn.disabled = false;
         btn.textContent = wasLabel;
         msg.className = 'gsf-msg bad';
         msg.textContent = def.error_message || 'Something went wrong. Please try again.';
         return;
       }
+
+      // Before the redirect: a page that is about to be left still has to have
+      // pushed the lead, or the conversion is lost.
+      track('generate_lead', {
+        form_name: def.name || def.slug,
+        form: def.slug,
+        program: data.program,
+        interest: data.interest,
+        utm_source: attr.utm_source,
+        utm_medium: attr.utm_medium,
+        utm_campaign: attr.utm_campaign,
+      });
 
       var program = (data.program || '').toLowerCase();
       var to = def.redirect_enabled
@@ -230,6 +291,12 @@
   }
 
   function boot() {
+    // Before anything else, and whether or not this page has a form on it: if
+    // the script is in the site's head it runs on the landing page too, and the
+    // campaign has to be recorded there. By the time the visitor reaches the
+    // contact page the utm parameters are long gone from the URL.
+    attribution();
+
     var mounts = document.querySelectorAll('[data-gs-form]');
     if (!mounts.length) return;
     if (!ANON) {

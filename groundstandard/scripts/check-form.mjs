@@ -46,10 +46,10 @@ const is = (name, got, want) => (got === want ? ok(name, String(got)) : bad(name
 // One page, one form, and a fetch we can watch.
 const PAGE = 'https://roninbjj.com/trial?utm_source=fb';
 
-async function mount({ reportFails = false, webhookFails = false, definition = DEF } = {}) {
+async function mount({ reportFails = false, webhookFails = false, definition = DEF, page = PAGE, seed = null } = {}) {
   const dom = new JSDOM(
     `<!doctype html><html><body><div data-gs-form="${definition.slug}"></div></body></html>`,
-    { url: PAGE, runScripts: 'outside-only' },
+    { url: page, runScripts: 'outside-only' },
   );
   const { window } = dom;
   const calls = [];
@@ -57,7 +57,8 @@ async function mount({ reportFails = false, webhookFails = false, definition = D
   // jsdom will not leave the page, and window.location cannot be replaced, so
   // the script is given its own Location that records where it tried to go.
   const nav = { to: null };
-  var here = PAGE;
+  window.dataLayer = [];
+  var here = page;
   const loc = {
     get href() { return here; },
     set href(v) { nav.to = v; here = v; },
@@ -85,6 +86,9 @@ async function mount({ reportFails = false, webhookFails = false, definition = D
   script.setAttribute('data-key', 'anon-key-for-test');
   window.document.body.appendChild(script);
   Object.defineProperty(window.document, 'currentScript', { value: script, configurable: true });
+
+  // What an earlier page in the same visit left behind.
+  if (seed) for (const [k, v] of Object.entries(seed)) window.sessionStorage.setItem(k, v);
 
   // Shadow only `location`; everything else is the real window.
   window.eval(`(function (location) {${SOURCE}\n})`)(loc);
@@ -223,6 +227,65 @@ console.log('\na form with no webhook set yet:');
   msg.className.includes('ok')
     ? ok('the visitor still gets a thank you rather than an error')
     : bad('the visitor still gets a thank you', msg.textContent);
+}
+
+console.log('\ncampaign tracking:');
+{
+  const { window, doc, calls } = await mount();
+  const form = doc.querySelector('form.gsf');
+  fill(form, {
+    first_name: 'Ada', last_name: 'Cruz', email: 'ada@example.com',
+    program: 'Adult', consent: true,
+  });
+  await submit(form, window);
+
+  const crm = calls.find(c => c.url.includes('leadconnectorhq'));
+  is('the campaign comes through as its own field', crm.body.utm_source, 'fb');
+
+  const lead = window.dataLayer.find(e => e.event === 'generate_lead');
+  lead ? ok('generate_lead is pushed for GTM') : bad('generate_lead is pushed for GTM', 'nothing pushed');
+  if (lead) {
+    is('  it names the form', lead.form_name, 'Ronin BJJ free trial');
+    is('  it carries the programme', lead.program, 'Adult');
+    is('  it carries the campaign', lead.utm_source, 'fb');
+    is('  and the page', lead.page_path, '/trial');
+    'interest' in lead
+      ? bad('  empty values are left out', 'interest was pushed empty')
+      : ok('  empty values are left out');
+  }
+}
+
+console.log('\nattribution survives the walk to the form page:');
+{
+  // The campaign lands on one page; the form sits on another that has no utm on it.
+  const landing = await mount();
+  const kept = landing.window.sessionStorage.getItem('gs_attr');
+  kept ? ok('the landing page kept the campaign', kept) : bad('the landing page kept the campaign', 'nothing stored');
+
+  const { window, doc, calls } = await mount({
+    page: 'https://roninbjj.com/contact',
+    seed: kept ? { gs_attr: kept } : null,
+  });
+  const form = doc.querySelector('form.gsf');
+  fill(form, { first_name: 'Ben', last_name: 'Tan', email: 'ben@example.com', program: 'Youth', consent: true });
+  await submit(form, window);
+
+  const crm = calls.find(c => c.url.includes('leadconnectorhq'));
+  is('the campaign is still on the lead', crm.body.utm_source, 'fb');
+  is('and the page it came from is the form page', crm.body._source_url, 'https://roninbjj.com/contact');
+}
+
+console.log('\nwhen the CRM fails, GTM hears about it:');
+{
+  const { window, doc } = await mount({ webhookFails: true });
+  const form = doc.querySelector('form.gsf');
+  fill(form, { first_name: 'Cy', last_name: 'Ray', email: 'cy@example.com', program: 'Adult', consent: true });
+  await submit(form, window);
+  const err = window.dataLayer.find(e => e.event === 'form_error');
+  err ? ok('form_error is pushed', err.form_name) : bad('form_error is pushed', 'nothing pushed');
+  window.dataLayer.some(e => e.event === 'generate_lead')
+    ? bad('a failed submission is not counted as a lead', 'generate_lead was pushed anyway')
+    : ok('a failed submission is not counted as a lead');
 }
 
 console.log(failures.length
