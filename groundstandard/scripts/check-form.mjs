@@ -288,6 +288,41 @@ console.log('\nwhen the CRM fails, GTM hears about it:');
     : ok('a failed submission is not counted as a lead');
 }
 
+console.log('\nhidden fields:');
+{
+  // Which gym the lead came from, a routing tag, a campaign name — things the
+  // visitor should never be asked and never be able to change.
+  const withHidden = {
+    ...DEF,
+    fields: [
+      ...DEF.fields,
+      { name: 'location', label: 'Which gym', type: 'hidden', required: false, value: 'Eatontown' },
+      { name: 'lead_source', label: 'Where it came from', type: 'hidden', required: true, value: '' },
+    ],
+  };
+
+  const { window, doc, calls } = await mount({ definition: withHidden });
+  const form = doc.querySelector('form.gsf');
+
+  is('hidden fields add no visible rows', doc.querySelectorAll('.gsf-row').length, DEF.fields.length);
+  doc.body.textContent.includes('Which gym')
+    ? bad('nothing about them is shown to the visitor', 'the label is on the page')
+    : ok('nothing about them is shown to the visitor');
+
+  fill(form, {
+    first_name: 'Rae', last_name: 'Ford', email: 'rae@example.com',
+    program: 'Adult', consent: true,
+  });
+  await submit(form, window);
+
+  const crm = calls.find(c => c.url.includes('leadconnectorhq'));
+  crm ? ok('the lead still goes') : bad('the lead still goes', 'an empty required hidden field blocked it');
+  if (crm) {
+    is('the fixed value rides along', crm.body.location, 'Eatontown');
+    is('an empty one is sent empty rather than blocking', crm.body.lead_source, '');
+  }
+}
+
 console.log(failures.length
   ? `\n${failures.length} failed: ${failures.join(', ')}`
   : '\nall checks passed');

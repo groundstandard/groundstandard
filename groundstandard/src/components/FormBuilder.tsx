@@ -18,12 +18,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   AlignLeft, ArrowLeft, AtSign, Check, CheckSquare, ChevronDown, ClipboardList,
-  Copy, ExternalLink, GripVertical, Layers, Loader2, Phone, Plus, Save, Search,
-  Trash2, Type, X,
+  Copy, ExternalLink, EyeOff, GripVertical, Layers, Loader2, Phone, Plus, Save,
+  Search, Trash2, Type, X,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-type FieldType = 'text' | 'email' | 'phone' | 'select' | 'textarea' | 'checkbox';
+type FieldType = 'text' | 'email' | 'phone' | 'select' | 'textarea' | 'checkbox' | 'hidden';
 
 type FormField = {
   name: string;
@@ -32,6 +32,7 @@ type FormField = {
   required: boolean;
   placeholder?: string;
   options?: string[];
+  value?: string;       // hidden fields only: the fixed value that is sent
 };
 
 type FormDef = {
@@ -94,6 +95,7 @@ const FIELD_TYPES: { value: FieldType; label: string; icon: typeof Type }[] = [
   { value: 'select', label: 'Choice', icon: ChevronDown },
   { value: 'textarea', label: 'Long text', icon: AlignLeft },
   { value: 'checkbox', label: 'Tickbox', icon: CheckSquare },
+  { value: 'hidden', label: 'Hidden', icon: EyeOff },
 ];
 
 const iconFor = (t: FieldType) => FIELD_TYPES.find(x => x.value === t)?.icon ?? Type;
@@ -600,7 +602,7 @@ function FieldRow({ field, index, count, onChange, onMoveTo, onDropFrom, onRemov
         <input
           value={field.label}
           onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Label the visitor reads"
+          placeholder={field.type === 'hidden' ? 'What this value is for' : 'Label the visitor reads'}
           className="min-w-0 flex-1 bg-transparent text-sm font-medium text-slate-900 outline-none placeholder:font-normal placeholder:text-slate-300"
         />
 
@@ -651,19 +653,29 @@ function FieldRow({ field, index, count, onChange, onMoveTo, onDropFrom, onRemov
           title="What GoHighLevel receives this as"
         />
 
-        <button
-          onClick={() => onChange({ required: !field.required })}
-          title="Whether the visitor has to fill this in"
-          className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
-            field.required
-              ? 'bg-slate-900 text-white'
-              : 'border border-slate-200 bg-white text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          {field.required ? 'Required' : 'Optional'}
-        </button>
+        {field.type !== 'hidden' && (
+          <button
+            onClick={() => onChange({ required: !field.required })}
+            title="Whether the visitor has to fill this in"
+            className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
+              field.required
+                ? 'bg-slate-900 text-white'
+                : 'border border-slate-200 bg-white text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            {field.required ? 'Required' : 'Optional'}
+          </button>
+        )}
 
-        {field.type === 'select' ? (
+        {field.type === 'hidden' ? (
+          <input
+            value={field.value ?? ''}
+            onChange={(e) => onChange({ value: e.target.value })}
+            className="min-w-[150px] flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none transition focus:border-blue-400"
+            placeholder="Value sent every time — e.g. Eatontown"
+            title="The visitor never sees this; it is sent with every submission"
+          />
+        ) : field.type === 'select' ? (
           <input
             value={(field.options ?? []).join(', ')}
             onChange={(e) => onChange({ options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
@@ -709,7 +721,7 @@ function Preview({ def }: { def: FormDef }) {
           </div>
 
           <div className="space-y-3.5 p-4">
-            {def.fields.map((f, i) => (
+            {def.fields.filter(f => f.type !== 'hidden').map((f, i) => (
               <div key={i}>
                 {f.type === 'checkbox' ? (
                   <label className="flex items-start gap-2 text-xs leading-relaxed text-slate-600">
@@ -763,6 +775,21 @@ function Preview({ def }: { def: FormDef }) {
         The site's own fonts and colours carry through, so on the page itself it will look like
         the rest of that site rather than like this.
       </p>
+
+      {def.fields.some(f => f.type === 'hidden') && (
+        <div className="border-t border-slate-100 px-5 py-3">
+          <p className="mb-1.5 text-[11px] font-semibold text-slate-600">Sent with every submission</p>
+          <ul className="space-y-1">
+            {def.fields.filter(f => f.type === 'hidden').map((f, i) => (
+              <li key={i} className="flex items-center gap-1.5 font-mono text-[11px] text-slate-500">
+                <EyeOff className="h-3 w-3 flex-shrink-0 text-slate-400" />
+                <span className="truncate">{f.name} = {f.value || <span className="text-amber-600">empty</span>}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1.5 text-[11px] text-slate-400">The visitor never sees these.</p>
+        </div>
+      )}
     </div>
   );
 }

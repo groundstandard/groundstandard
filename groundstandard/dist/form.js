@@ -105,8 +105,17 @@
   // otherwise — a form that renders slightly plain is better than one that
   // throws because a type was misspelt.
   function field(f) {
-    var row = el('div', { class: 'gsf-row' });
     var id = 'gsf-' + f.name;
+
+    // A hidden field is a fixed value the visitor never sees and cannot change:
+    // which gym, which campaign, a tag GoHighLevel routes on. It goes in the
+    // form so it is collected and sent like any other answer, with no row and no
+    // label around it.
+    if (f.type === 'hidden') {
+      return el('input', { type: 'hidden', name: f.name, id: id, value: f.value || '' });
+    }
+
+    var row = el('div', { class: 'gsf-row' });
 
     if (f.type === 'checkbox') {
       var wrap = el('label', { class: 'gsf-check' });
@@ -187,6 +196,9 @@
   function firstMissing(data, def) {
     var missing = (def.fields || []).filter(function (f) {
       if (!f.required) return false;
+      // A hidden field left empty is our mistake, not the visitor's, and there
+      // is nothing on screen for them to fix. Never block a lead over it.
+      if (f.type === 'hidden') return false;
       var v = data[f.name];
       return f.type === 'checkbox' ? v !== true : !v;
     });
