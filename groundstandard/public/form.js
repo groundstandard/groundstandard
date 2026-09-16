@@ -40,6 +40,11 @@
     '.gsf-msg.bad{display:block;background:rgba(198,72,60,.12);border:1px solid rgba(198,72,60,.4)}',
     '.gsf-fine{margin-top:10px;font-size:12px;opacity:.6}',
     '.gsf-fine a{color:inherit}',
+    '.gsf-bone{background:currentColor;opacity:.08;border-radius:8px;animation:gsf-pulse 1.4s ease-in-out infinite}',
+    '.gsf-bone-label{width:90px;height:11px;margin-bottom:6px}',
+    '.gsf-bone-field{width:100%;height:43px}',
+    '.gsf-bone-btn{width:100%;height:45px}',
+    '@keyframes gsf-pulse{0%,100%{opacity:.08}50%{opacity:.16}}',
   ].join('');
 
   // Where the visitor came from. Captured on whatever page they land on and kept
@@ -85,6 +90,35 @@
       window.dataLayer = window.dataLayer || [];
       window.dataLayer.push(payload);
     } catch (err) { /* tracking never blocks a lead */ }
+  }
+
+  // The definition is remembered per form, so a repeat visit renders before the
+  // network is asked anything. The fresh copy still arrives right behind it and
+  // replaces the form if it changed — the whole point of this system is that
+  // Bobby's edit shows up without anyone republishing a site.
+  function remembered(slug) {
+    try {
+      var raw = localStorage.getItem('gsf_def_' + slug);
+      return raw ? JSON.parse(raw) : null;
+    } catch (err) { return null; }
+  }
+
+  function remember(slug, def) {
+    try { localStorage.setItem('gsf_def_' + slug, JSON.stringify(def)); } catch (err) { /* full or blocked */ }
+  }
+
+  // Start the handshake with the database while the page is still busy, so the
+  // definition request does not pay for DNS and TLS when it finally goes out.
+  function warmUp() {
+    try {
+      if (document.getElementById('gsf-preconnect')) return;
+      var link = document.createElement('link');
+      link.id = 'gsf-preconnect';
+      link.rel = 'preconnect';
+      link.href = API;
+      link.crossOrigin = 'anonymous';
+      document.head.appendChild(link);
+    } catch (err) { /* nothing lost */ }
   }
 
   function el(tag, attrs, text) {
@@ -333,6 +367,32 @@
     }
   }
 
+  // Something in the space straight away on a first visit. An empty gap reads as
+  // a broken page; this reads as a form that is nearly there.
+  function skeleton(mount) {
+    styleOnce();
+    var box = el('div', { class: 'gsf gsf-skeleton', 'aria-hidden': 'true' });
+    for (var i = 0; i < 4; i += 1) {
+      var row = el('div', { class: 'gsf-row' });
+      row.appendChild(el('div', { class: 'gsf-bone gsf-bone-label' }));
+      row.appendChild(el('div', { class: 'gsf-bone gsf-bone-field' }));
+      box.appendChild(row);
+    }
+    box.appendChild(el('div', { class: 'gsf-bone gsf-bone-btn' }));
+    mount.innerHTML = '';
+    mount.appendChild(box);
+  }
+
+  function touched(mount) {
+    var fields = mount.querySelectorAll('input, select, textarea');
+    for (var i = 0; i < fields.length; i += 1) {
+      var f = fields[i];
+      if (f.type === 'checkbox' ? f.checked : String(f.value || '').trim() !== '') return true;
+      if (document.activeElement === f) return true;
+    }
+    return false;
+  }
+
   function boot() {
     // Before anything else, and whether or not this page has a form on it: if
     // the script is in the site's head it runs on the landing page too, and the
@@ -347,21 +407,41 @@
       return;
     }
 
+    warmUp();
+
     mounts.forEach(function (mount) {
       var slug = mount.getAttribute('data-gs-form');
+
+      // Render what we saw last time first. On a repeat visit the form is there
+      // immediately; on a first visit there is a skeleton rather than a gap.
+      var known = remembered(slug);
+      if (known) render(mount, known); else skeleton(mount);
+
       fetch(API + '/rest/v1/forms?slug=eq.' + encodeURIComponent(slug) + '&active=eq.true&select=*', {
         headers: { apikey: ANON, Authorization: 'Bearer ' + ANON },
       })
         .then(function (r) { return r.json(); })
         .then(function (rows) {
           if (!rows || !rows.length) {
-            mount.textContent = 'Form "' + slug + '" was not found.';
+            // An unknown or paused form. If a remembered copy is on screen,
+            // leave it: a visitor mid-enquiry should not watch the form vanish.
+            if (!known) mount.textContent = 'Form "' + slug + '" was not found.';
             return;
           }
-          render(mount, rows[0]);
+
+          var fresh = rows[0];
+          remember(slug, fresh);
+
+          if (!known) { render(mount, fresh); return; }
+          if (JSON.stringify(fresh) === JSON.stringify(known)) return;
+
+          // It changed. Redraw only if nobody has started filling it in —
+          // replacing a form under someone's hands would throw away their typing.
+          if (touched(mount)) return;
+          render(mount, fresh);
         })
         .catch(function () {
-          mount.textContent = 'This form could not be loaded.';
+          if (!known) mount.textContent = 'This form could not be loaded.';
         });
     });
   }

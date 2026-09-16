@@ -46,7 +46,7 @@ const is = (name, got, want) => (got === want ? ok(name, String(got)) : bad(name
 // One page, one form, and a fetch we can watch.
 const PAGE = 'https://roninbjj.com/trial?utm_source=fb';
 
-async function mount({ reportFails = false, webhookFails = false, definition = DEF, page = PAGE, seed = null } = {}) {
+async function mount({ reportFails = false, webhookFails = false, definition = DEF, page = PAGE, seed = null, store = null, holdDefinition = false, definitionDelay = 0 } = {}) {
   const dom = new JSDOM(
     `<!doctype html><html><body><div data-gs-form="${definition.slug}"></div></body></html>`,
     { url: page, runScripts: 'outside-only' },
@@ -73,7 +73,11 @@ async function mount({ reportFails = false, webhookFails = false, definition = D
     const body = opts.body ? JSON.parse(opts.body) : null;
     calls.push({ url, body });
     if (url.includes('/rest/v1/forms')) {
-      return Promise.resolve({ ok: true, json: () => Promise.resolve([definition]) });
+      // A network that never answers, to see what the visitor looks at meanwhile.
+      if (holdDefinition) return new Promise(() => {});
+      const answer = { ok: true, json: () => Promise.resolve([definition]) };
+      if (definitionDelay) return new Promise(r => setTimeout(() => r(answer), definitionDelay));
+      return Promise.resolve(answer);
     }
     if (url.includes('railway.app')) {
       return reportFails ? Promise.reject(new Error('reporting is down')) : Promise.resolve({ ok: true });
@@ -90,10 +94,23 @@ async function mount({ reportFails = false, webhookFails = false, definition = D
   // What an earlier page in the same visit left behind.
   if (seed) for (const [k, v] of Object.entries(seed)) window.sessionStorage.setItem(k, v);
 
+  // localStorage survives between visits in a browser; jsdom gives each window a
+  // fresh one, so a shared object stands in for the same person coming back.
+  if (store) {
+    window.localStorage.clear();
+    for (const [k, v] of Object.entries(store)) window.localStorage.setItem(k, v);
+  }
+
   // Shadow only `location`; everything else is the real window.
   window.eval(`(function (location) {${SOURCE}\n})`)(loc);
   await new Promise(r => setTimeout(r, 0));
-  return { window, doc: window.document, calls, nav };
+  // Hand back whatever the visit stored, so the next one can start from it.
+  const saved = {};
+  for (let i = 0; i < window.localStorage.length; i += 1) {
+    const k = window.localStorage.key(i);
+    saved[k] = window.localStorage.getItem(k);
+  }
+  return { window, doc: window.document, calls, nav, saved };
 }
 
 const fill = (form, values) => {
@@ -387,6 +404,57 @@ console.log('\nwhat a choice sends versus what it says:');
   await submit(form, window);
   const crm = calls.find(c => c.url.includes('leadconnectorhq'));
   is('the value is what reaches GoHighLevel', crm.body.program, 'jiu-jitsu');
+}
+
+console.log('\nhow fast the form appears:');
+{
+  // A first visit, with the definition request left hanging: the visitor should
+  // not be looking at an empty gap while the network thinks about it.
+  const first = await mount({ holdDefinition: true, store: {} });
+  const bones = first.doc.querySelectorAll('.gsf-bone').length;
+  bones > 0
+    ? ok('a first visit shows a skeleton immediately', bones + ' placeholders')
+    : bad('a first visit shows a skeleton immediately', 'the mount was left empty');
+  first.doc.querySelector('#gsf-preconnect')
+    ? ok('and the connection to the database is warmed up early')
+    : bad('and the connection to the database is warmed up early', 'no preconnect');
+
+  // The same person comes back. The definition is remembered, so the real form
+  // is on screen before the network answers anything.
+  const once = await mount();
+  const returning = await mount({ store: once.saved, holdDefinition: true });
+  const form = returning.doc.querySelector('form.gsf');
+  form ? ok('a repeat visit renders before the network answers') : bad('a repeat visit renders before the network answers', 'nothing rendered');
+  if (form) is('  with the fields it saw last time', returning.doc.querySelectorAll('.gsf-row').length, DEF.fields.length);
+}
+
+console.log('\nwhen Bobby changes the form:');
+{
+  const once = await mount();
+  const changed = { ...DEF, submit_label: 'Claim my free week' };
+  const back = await mount({ store: once.saved, definition: changed });
+  is('the new wording replaces the remembered one',
+    back.doc.querySelector('.gsf-btn').textContent, 'Claim my free week');
+
+  // The same change arriving while somebody is already filling the form in.
+  const busy = await mount({ store: once.saved, definition: changed, definitionDelay: 40 });
+  const form = busy.doc.querySelector('form.gsf');
+  is('  the remembered version is what they started on', form.elements.first_name.value, '');
+  form.elements.first_name.value = 'half typed';
+  form.elements.email.value = 'mid@enquiry.com';
+
+  await new Promise(r => setTimeout(r, 120));   // the new definition lands here
+
+  const after = busy.doc.querySelector('form.gsf');
+  is('their typing survives', after.elements.first_name.value, 'half typed');
+  is('  all of it', after.elements.email.value, 'mid@enquiry.com');
+  is('  and the form was left alone rather than redrawn',
+    busy.doc.querySelector('.gsf-btn').textContent, DEF.submit_label);
+
+  // Untouched, the same arrival does redraw.
+  const idle = await mount({ store: once.saved, definition: changed, definitionDelay: 40 });
+  await new Promise(r => setTimeout(r, 120));
+  is('an untouched form takes the change', idle.doc.querySelector('.gsf-btn').textContent, 'Claim my free week');
 }
 
 console.log(failures.length

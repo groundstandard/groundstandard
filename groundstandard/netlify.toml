@@ -2,6 +2,20 @@
   command = "npm run build"
   publish = "dist"
 
+# The embed script on client sites. It shipped with max-age=0, so every visitor
+# paid a full round trip for it on every page — the form could not appear for
+# about a second. Five minutes of browser cache removes that, and
+# stale-while-revalidate keeps a stale copy usable for a day while the fresh one
+# is fetched in the background.
+#
+# Deliberately short. Pinning a copy of a form script into a site for a long time
+# is exactly what went wrong in July; what changes often is the form definition,
+# and that is read from the database on every load regardless.
+[[headers]]
+  for = "/form.js"
+  [headers.values]
+    Cache-Control = "public, max-age=300, stale-while-revalidate=86400"
+
 [[edge_functions]]
   path = "/img/*"
   function = "share-image"
