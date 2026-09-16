@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ArrowUp, ClipboardList, Globe, RefreshCw, Search, Copy, Download, ChevronRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { attributionOf } from '../lib/attribution';
 
 type FormSubmissionProps = {
   onBackToLaunch?: () => void;
@@ -37,6 +38,7 @@ export default function FormSubmission({ onBackToLaunch }: FormSubmissionProps) 
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedWebsite, setSelectedWebsite] = useState<string | null>(null);
+  const [selectedCampaign, setSelectedCampaign] = useState<string | null>(null);
   const [selectedSubmissionIds, setSelectedSubmissionIds] = useState<Set<number>>(() => new Set());
   const [detailsRow, setDetailsRow] = useState<FormSubmissionRow | null>(null);
 
@@ -147,12 +149,32 @@ export default function FormSubmission({ onBackToLaunch }: FormSubmissionProps) 
   }, [normalizeHostname]);
 
   const visibleRows = useMemo(() => {
-    if (!selectedWebsite) return rows;
-    return rows.filter((r) => (getWebsiteLabel(r) ?? 'Unknown website') === selectedWebsite);
+    const byWebsite = selectedWebsite
+      ? rows.filter((r) => (getWebsiteLabel(r) ?? 'Unknown website') === selectedWebsite)
+      : rows;
+    if (!selectedCampaign) return byWebsite;
+    return byWebsite.filter((r) => attributionOf(r).label === selectedCampaign);
+  }, [getWebsiteLabel, rows, selectedCampaign, selectedWebsite]);
+
+  // What is actually in this website's leads, biggest first — a list of the
+  // campaigns that exist rather than a list of the ones we expected.
+  const campaignGroups = useMemo(() => {
+    const base = selectedWebsite
+      ? rows.filter((r) => (getWebsiteLabel(r) ?? 'Unknown website') === selectedWebsite)
+      : rows;
+    const map = new Map<string, number>();
+    for (const r of base) {
+      const key = attributionOf(r).label;
+      map.set(key, (map.get(key) ?? 0) + 1);
+    }
+    return Array.from(map.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
   }, [getWebsiteLabel, rows, selectedWebsite]);
 
   useEffect(() => {
     setSelectedSubmissionIds(new Set());
+    setSelectedCampaign(null);
   }, [selectedWebsite]);
 
   const normalizedSearch = useMemo(() => searchTerm.trim().toLowerCase(), [searchTerm]);
@@ -171,6 +193,8 @@ export default function FormSubmission({ onBackToLaunch }: FormSubmissionProps) 
         r.source_hostname,
         r.source_pathname,
         r.source_referrer,
+        attributionOf(r).label,
+        attributionOf(r).campaign,
       ]
         .filter(Boolean)
         .join(' ')
@@ -246,6 +270,11 @@ export default function FormSubmission({ onBackToLaunch }: FormSubmissionProps) 
       'Phone',
       'Consent',
       'Consent 2',
+      'Attribution',
+      'UTM Source',
+      'UTM Medium',
+      'UTM Campaign',
+      'Click ID',
       'Primary Source',
       'Source URL',
       'Source Path',
@@ -257,6 +286,7 @@ export default function FormSubmission({ onBackToLaunch }: FormSubmissionProps) 
       const websiteLabel = getWebsiteLabel(r) ?? 'Unknown website';
       const fullName = [r.first_name, r.last_name].filter(Boolean).join(' ');
       const primarySourceText = getPrimarySourceText(r);
+      const attribution = attributionOf(r);
       lines.push(
         [
           formatExcelDateTime(r.submitted_at),
@@ -270,6 +300,11 @@ export default function FormSubmission({ onBackToLaunch }: FormSubmissionProps) 
           r.phone,
           r.consent === true ? 'Yes' : r.consent === false ? 'No' : '',
           r.consent2 === true ? 'Yes' : r.consent2 === false ? 'No' : '',
+          attribution.label,
+          attribution.source,
+          attribution.medium,
+          attribution.campaign,
+          attribution.clickId,
           primarySourceText,
           r.source_url,
           r.source_pathname,
@@ -512,11 +547,47 @@ export default function FormSubmission({ onBackToLaunch }: FormSubmissionProps) 
                   ))}
                 </div>
               )
-            ) : filteredRows.length === 0 ? (
-              <div className="bg-white/80 backdrop-blur-sm border border-gray-200/60 rounded-3xl shadow-sm p-6 text-sm text-gray-600">
-                No records found.
-              </div>
             ) : (
+              <>
+                {campaignGroups.length > 1 && (
+                  <div className="mb-4 flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-gray-400">Campaign</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCampaign(null)}
+                      className={`rounded-full px-3 py-1 text-xs font-bold transition ${
+                        selectedCampaign === null
+                          ? 'bg-gray-900 text-white'
+                          : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      All
+                    </button>
+                    {campaignGroups.map((c) => (
+                      <button
+                        key={c.label}
+                        type="button"
+                        onClick={() => setSelectedCampaign(selectedCampaign === c.label ? null : c.label)}
+                        className={`rounded-full px-3 py-1 text-xs font-bold transition ${
+                          selectedCampaign === c.label
+                            ? 'bg-gray-900 text-white'
+                            : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        {c.label}
+                        <span className={`ml-1.5 font-semibold ${selectedCampaign === c.label ? 'text-gray-300' : 'text-gray-400'}`}>
+                          {c.count}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {filteredRows.length === 0 ? (
+                  <div className="bg-white/80 backdrop-blur-sm border border-gray-200/60 rounded-3xl shadow-sm p-6 text-sm text-gray-600">
+                    No records found.
+                  </div>
+                ) : (
               <div className="rounded-3xl border border-gray-200/70 bg-white/95 shadow-sm overflow-hidden">
                 <table className="w-full text-sm table-fixed">
                   <thead className="bg-slate-50 text-left text-xs font-bold uppercase tracking-wider text-gray-500">
@@ -528,6 +599,7 @@ export default function FormSubmission({ onBackToLaunch }: FormSubmissionProps) 
                       <th className="px-4 py-3">Email</th>
                       <th className="px-4 py-3">Phone</th>
                       <th className="px-4 py-3 w-28">Program</th>
+                      <th className="px-4 py-3 w-40">Campaign</th>
                       <th className="px-4 py-3 w-20 text-center">Consent</th>
                       <th className="px-4 py-3 w-24 text-center">Consent 2</th>
                       <th className="px-4 py-3">Source URL</th>
@@ -544,6 +616,7 @@ export default function FormSubmission({ onBackToLaunch }: FormSubmissionProps) 
                       const consentOk = r.consent === true;
                       const consent2Ok = r.consent2 === true;
                       const primarySourceText = getPrimarySourceText(r);
+                      const attribution = attributionOf(r);
                       const isSelected = selectedSubmissionIds.has(r.id);
 
                       return (
@@ -581,6 +654,28 @@ export default function FormSubmission({ onBackToLaunch }: FormSubmissionProps) 
                           </td>
                           <td className="px-4 py-3 break-words">{r.phone ?? '—'}</td>
                           <td className="px-4 py-3 break-words w-28">{r.program ?? '—'}</td>
+                          <td className="px-4 py-3 w-40">
+                            <span
+                              className={`inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-xs font-bold ${
+                                attribution.label === 'Direct'
+                                  ? 'bg-gray-100 text-gray-600'
+                                  : 'bg-indigo-50 text-indigo-700'
+                              }`}
+                              title={[
+                                attribution.source ? `utm_source: ${attribution.source}` : null,
+                                attribution.medium ? `utm_medium: ${attribution.medium}` : null,
+                                attribution.campaign ? `utm_campaign: ${attribution.campaign}` : null,
+                                attribution.clickId ? `click id from ${attribution.clickId}` : null,
+                              ].filter(Boolean).join('\n') || 'No campaign on the link they arrived with'}
+                            >
+                              <span className="truncate">{attribution.label}</span>
+                            </span>
+                            {attribution.campaign && (
+                              <div className="mt-0.5 truncate text-[11px] text-gray-500" title={attribution.campaign}>
+                                {attribution.campaign}
+                              </div>
+                            )}
+                          </td>
                           <td className="px-4 py-3 text-center w-20">
                             <span
                               className={`inline-flex items-center justify-center rounded-full px-2 py-0.5 text-xs font-bold ${
@@ -659,6 +754,8 @@ export default function FormSubmission({ onBackToLaunch }: FormSubmissionProps) 
                   </tbody>
                 </table>
               </div>
+                )}
+              </>
             )}
           </div>
         </div>

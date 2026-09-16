@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "check:form": "node scripts/check-form.mjs",
-    "typecheck": "tsc -p tsconfig.app.json --noEmit"
+    "typecheck": "tsc -p tsconfig.app.json --noEmit",
+    "check:attribution": "node scripts/check-attribution.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
