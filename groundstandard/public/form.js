@@ -158,6 +158,16 @@
 
     (def.fields || []).forEach(function (f) { form.appendChild(field(f)); });
 
+    // A field no person can see and every crude bot fills in. Cheaper than a
+    // captcha, invisible to a real visitor, and it keeps junk out of the CRM
+    // rather than out of our reporting only.
+    var trap = el('input', {
+      type: 'text', name: 'gs_company', id: 'gsf-company', tabindex: '-1',
+      autocomplete: 'off', 'aria-hidden': 'true',
+    });
+    trap.style.cssText = 'position:absolute;left:-9999px;width:1px;height:1px;opacity:0';
+    form.appendChild(trap);
+
     var btn = el('button', { class: 'gsf-btn', type: 'submit' }, def.submit_label || 'Send');
     form.appendChild(btn);
 
@@ -206,6 +216,15 @@
   }
 
   function submit(form, def, btn, msg) {
+    // The trap was filled in, so this is not a person. Behave exactly as if it
+    // worked: a bot that is told it failed simply tries again.
+    var trap = form.elements['gs_company'];
+    if (trap && String(trap.value).trim() !== '') {
+      msg.className = 'gsf-msg ok';
+      msg.textContent = def.success_message || 'Thank you. We will be in touch shortly.';
+      return;
+    }
+
     var data = collect(form, def);
 
     var missing = firstMissing(data, def);
@@ -234,6 +253,12 @@
       _source_referrer: document.referrer || '',
       _submitted_at: new Date().toISOString(),
     });
+
+    var whole = [data.first_name, data.last_name].filter(Boolean).join(' ').trim();
+    if (whole && !payload.name) payload.name = whole;
+    if (!payload.form_name) payload.form_name = def.name || def.slug;
+    if (!payload.page_url) payload.page_url = location.href;
+    if (!payload.source) payload.source = def.name || def.slug;
 
     // Our copy. Deliberately not awaited and deliberately not able to block the
     // CRM call — during the July outage this endpoint was dead for eight weeks

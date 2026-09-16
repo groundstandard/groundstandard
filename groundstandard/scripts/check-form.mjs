@@ -323,6 +323,45 @@ console.log('\nhidden fields:');
   }
 }
 
+console.log('\nspam and the names a CRM workflow already reads:');
+{
+  const { window, doc, calls } = await mount();
+  const form = doc.querySelector('form.gsf');
+
+  // A bot fills every input it can find, including the one no person can see.
+  const trap = form.elements['gs_company'];
+  trap ? ok('there is a trap field') : bad('there is a trap field', 'none rendered');
+  is('  it is out of the tab order', trap.getAttribute('tabindex'), '-1');
+  is('  and hidden from screen readers', trap.getAttribute('aria-hidden'), 'true');
+
+  const before = calls.length;
+  fill(form, {
+    first_name: 'Bot', last_name: 'Net', email: 'bot@example.com',
+    program: 'Adult', consent: true,
+  });
+  trap.value = 'Acme Marketing';
+  await submit(form, window);
+  is('a filled trap sends nothing', calls.length - before, 0);
+  doc.querySelector('.gsf-msg').className.includes('ok')
+    ? ok('  and the bot is told it worked, so it does not retry')
+    : bad('  and the bot is told it worked', doc.querySelector('.gsf-msg').className);
+
+  trap.value = '';
+  await submit(form, window);
+  const crm = calls.find(c => c.url.includes('leadconnectorhq'));
+  crm ? ok('a real person still gets through') : bad('a real person still gets through', 'nothing sent');
+  if (crm) {
+    is('  name arrives whole, the way the old form sent it', crm.body.name, 'Bot Net');
+    is('  form_name without the underscore', crm.body.form_name, 'Ronin BJJ free trial');
+    is('  page_url without the underscore', crm.body.page_url, 'https://roninbjj.com/trial?utm_source=fb');
+    is('  source, which their workflow reads', crm.body.source, 'Ronin BJJ free trial');
+    is('  and our own keys are still there', crm.body._form, 'ronin-trial');
+    'gs_company' in crm.body
+      ? bad('  the trap is not sent to the CRM', 'it was included')
+      : ok('  the trap is not sent to the CRM');
+  }
+}
+
 console.log(failures.length
   ? `\n${failures.length} failed: ${failures.join(', ')}`
   : '\nall checks passed');
