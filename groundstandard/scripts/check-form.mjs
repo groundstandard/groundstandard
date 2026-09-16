@@ -362,6 +362,33 @@ console.log('\nspam and the names a CRM workflow already reads:');
   }
 }
 
+console.log('\nwhat a choice sends versus what it says:');
+{
+  const def = {
+    ...DEF,
+    fields: DEF.fields.map(f => f.name === 'program' ? {
+      ...f,
+      label: 'What are you interested in?',
+      options: ['Membership & Pricing = pricing', 'Jiu-Jitsu / BJJ = jiu-jitsu', 'Kickboxing'],
+    } : f),
+  };
+
+  const { window, doc, calls } = await mount({ definition: def });
+  const select = doc.querySelector('select[name=program]');
+  const options = [...select.options].slice(1);
+
+  is('the visitor reads the label', options[0].textContent, 'Membership & Pricing');
+  is('the CRM receives the value', options[0].value, 'pricing');
+  is('a plain option is unchanged', options[2].textContent, 'Kickboxing');
+  is('  and sends itself', options[2].value, 'Kickboxing');
+
+  const form = doc.querySelector('form.gsf');
+  fill(form, { first_name: 'Ivo', last_name: 'Ruiz', email: 'ivo@example.com', program: 'jiu-jitsu', consent: true });
+  await submit(form, window);
+  const crm = calls.find(c => c.url.includes('leadconnectorhq'));
+  is('the value is what reaches GoHighLevel', crm.body.program, 'jiu-jitsu');
+}
+
 console.log(failures.length
   ? `\n${failures.length} failed: ${failures.join(', ')}`
   : '\nall checks passed');

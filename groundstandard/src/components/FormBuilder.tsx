@@ -680,8 +680,9 @@ function FieldRow({ field, index, count, onChange, onMoveTo, onDropFrom, onRemov
             value={(field.options ?? []).join(', ')}
             onChange={(e) => onChange({ options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
             className="min-w-[150px] flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none transition focus:border-blue-400"
-            placeholder="Adult, Youth"
-            title="Separate the choices with commas"
+            placeholder="Adult, Youth  —  or  Jiu-Jitsu / BJJ = jiu-jitsu"
+            title={'Separate the choices with commas.' + String.fromCharCode(10) +
+              'Write "Label = value" when the CRM expects a different value than the visitor reads.'}
           />
         ) : field.type !== 'checkbox' ? (
           <input

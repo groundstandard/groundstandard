@@ -135,7 +135,13 @@
       input = el('select', { class: 'gsf-select', name: f.name, id: id });
       input.appendChild(el('option', { value: '' }, f.placeholder || 'Choose one'));
       (f.options || []).forEach(function (o) {
-        input.appendChild(el('option', { value: o }, o));
+        // "Jiu-Jitsu / BJJ = jiu-jitsu" — what the visitor reads and what the CRM
+        // receives are not always the same thing. Killer B tags on the value, so
+        // an option that sent its label instead would break their routing.
+        var cut = String(o).indexOf('=');
+        var label = cut === -1 ? String(o) : String(o).slice(0, cut).trim();
+        var value = cut === -1 ? String(o) : String(o).slice(cut + 1).trim();
+        input.appendChild(el('option', { value: value }, label));
       });
     } else if (f.type === 'textarea') {
       input = el('textarea', { class: 'gsf-textarea', name: f.name, id: id, rows: '4', placeholder: f.placeholder || '' });
