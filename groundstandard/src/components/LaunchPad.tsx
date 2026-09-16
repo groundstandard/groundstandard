@@ -28,7 +28,7 @@ type LaunchPadProps = {
   onLaunchUpdateFormSubmission: () => void;
 };
 
-export default function LaunchPad({ onLaunchArticleGenerator, onLaunchFormSubmission, onLaunchWebScraper, onLaunchImageEditor, onLaunchUpdateFormSubmission }: LaunchPadProps) {
+export default function LaunchPad({ onLaunchArticleGenerator, onLaunchFormSubmission, onLaunchWebScraper, onLaunchImageEditor, onLaunchUpdateFormSubmission, onLaunchFormBuilder }: LaunchPadProps) {
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
