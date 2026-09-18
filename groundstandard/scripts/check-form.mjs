@@ -457,6 +457,38 @@ console.log('\nwhen Bobby changes the form:');
   is('an untouched form takes the change', idle.doc.querySelector('.gsf-btn').textContent, 'Claim my free week');
 }
 
+console.log('\nwho filled it in, for the conversion tags:');
+{
+  const { window, doc, calls } = await mount();
+  const form = doc.querySelector('form.gsf');
+  fill(form, {
+    first_name: 'Nina', last_name: 'Okafor', email: '  NINA@Example.COM ',
+    phone: '(732) 313-3703', program: 'Adult', consent: true,
+  });
+  await submit(form, window);
+
+  const lead = window.dataLayer.find(e => e.event === 'generate_lead');
+  lead && lead.user_data ? ok('user_data rides with generate_lead') : bad('user_data rides with generate_lead', 'missing');
+  if (lead && lead.user_data) {
+    is('  the email is tidied up', lead.user_data.email_address, 'nina@example.com');
+    is('  the phone is digits only', lead.user_data.phone_number, '7323133703');
+    is('  first name', lead.user_data.first_name, 'Nina');
+    is('  last name', lead.user_data.last_name, 'Okafor');
+  }
+  'email' in (lead || {})
+    ? bad('  the email is not loose among the event parameters', 'it is')
+    : ok('  the email is not loose among the event parameters');
+
+  // The thank-you page is a fresh load with no form on it.
+  const kept = window.sessionStorage.getItem('gs_lead_user');
+  kept ? ok('the person is kept for the thank-you page') : bad('the person is kept for the thank-you page', 'nothing stored');
+
+  const after = await mount({ page: 'https://roninbjj.com/thank-you', seed: { gs_lead_user: kept } });
+  const restored = after.window.dataLayer.find(e => e.user_data && !e.event);
+  restored ? ok('and pushed again there, before lead_thank_you fires') : bad('and pushed again there', 'not on the dataLayer');
+  if (restored) is('  same email', restored.user_data.email_address, 'nina@example.com');
+}
+
 console.log(failures.length
   ? `\n${failures.length} failed: ${failures.join(', ')}`
   : '\nall checks passed');

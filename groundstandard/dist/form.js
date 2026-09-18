@@ -77,6 +77,35 @@
     return found;
   }
 
+  // Who filled the form in, for the tags that match a conversion back to a
+  // person: Google's enhanced conversions and Meta's advanced matching both
+  // want this. Motiur asked for it on 18 September.
+  //
+  // It goes in its own user_data object rather than among the event parameters,
+  // because an email in a plain GA4 parameter breaks Google's own rules. GTM
+  // hashes what it finds here before anything leaves the browser.
+  function userData(data) {
+    var out = {};
+    if (data.email)      out.email_address = String(data.email).trim().toLowerCase();
+    if (data.phone)      out.phone_number = String(data.phone).replace(/[^0-9+]/g, '');
+    if (data.first_name) out.first_name = String(data.first_name).trim();
+    if (data.last_name)  out.last_name = String(data.last_name).trim();
+    if (!out.first_name && data.name) {
+      var parts = String(data.name).trim().split(/\s+/);
+      out.first_name = parts.shift() || '';
+      if (parts.length) out.last_name = parts.join(' ');
+    }
+    return out;
+  }
+
+  // The thank-you page is a different page load, and by then the form is gone.
+  // Leave the details behind so lead_thank_you can carry the same person.
+  function rememberPerson(payload) {
+    try {
+      sessionStorage.setItem('gs_lead_user', JSON.stringify(payload));
+    } catch (err) { /* private mode: the thank-you event goes without it */ }
+  }
+
   // Pushed for the site's own GTM container to pick up. We only push; loading
   // GTM is the site's job, and on a site without it this is a harmless array.
   // Killer B's events are the shape here, so its GA4 keeps working unchanged.
@@ -84,7 +113,13 @@
     try {
       var payload = { event: event };
       Object.keys(fields || {}).forEach(function (k) {
-        if (fields[k]) { payload[k] = fields[k]; }
+        var v = fields[k];
+        if (v && typeof v === 'object') {
+          // user_data is an object, not a value; an empty one is worth nothing.
+          if (Object.keys(v).length) { payload[k] = v; }
+        } else if (v) {
+          payload[k] = v;
+        }
       });
       payload.page_path = location.pathname;
       window.dataLayer = window.dataLayer || [];
@@ -342,6 +377,9 @@
 
       // Before the redirect: a page that is about to be left still has to have
       // pushed the lead, or the conversion is lost.
+      var person = userData(data);
+      rememberPerson(person);
+
       track('generate_lead', {
         form_name: def.name || def.slug,
         form: def.slug,
@@ -350,6 +388,7 @@
         utm_source: attr.utm_source,
         utm_medium: attr.utm_medium,
         utm_campaign: attr.utm_campaign,
+        user_data: person,
       });
 
       var program = (data.program || '').toLowerCase();
@@ -394,6 +433,17 @@
   }
 
   function boot() {
+    // A thank-you page has no form on it, so nothing here would otherwise run.
+    // Put the person back on the dataLayer before the site's own lead_thank_you
+    // fires, so that event carries the same details the lead did.
+    try {
+      var kept = sessionStorage.getItem('gs_lead_user');
+      if (kept) {
+        window.dataLayer = window.dataLayer || [];
+        window.dataLayer.push({ user_data: JSON.parse(kept) });
+      }
+    } catch (err) { /* nothing to restore */ }
+
     // Before anything else, and whether or not this page has a form on it: if
     // the script is in the site's head it runs on the landing page too, and the
     // campaign has to be recorded there. By the time the visitor reaches the
