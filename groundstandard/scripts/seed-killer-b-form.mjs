@@ -85,6 +85,16 @@ const theme = {
   button_height: 50,
 
   fine_style: 'links',
+
+  // The site serves its own Inter, Oswald and JetBrains Mono -- no Google
+  // request, and none wanted here either: naming the family is enough, because
+  // the page it sits on has already loaded it. font_google stays off.
+  font_family: 'Inter',
+
+  // The one thing the panel has no knob for. On the site the fields are Inter
+  // and the button is Oswald, and the button inherits the form's font, so the
+  // button is the only place that needs saying.
+  css: "& .gsf-btn{font-family:'Oswald',sans-serif}",
 };
 
 const row = {

@@ -100,6 +100,16 @@ for (const [label, token] of [['the club yellow', '#f2b01e'], ['the card', '#0d0
   check(`${label} carries through`, style.includes(token), style.includes(token) ? token : 'not set');
 }
 
+// Type: the fields take the site's body face, the button its display face.
+check('the fields use the site body face', style.includes('"Inter"'),
+  (style.match(/--gsf-font:[^;]*/) || ['not set'])[0]);
+const sheet = window.document.getElementById('gsf-css-killer-b-contact');
+check('the button keeps the site display face',
+  !!sheet && sheet.textContent.includes("Oswald"),
+  sheet ? sheet.textContent.slice(0, 80) : 'no custom css');
+check('no Google Fonts request is added', !window.document.querySelector('link[href*="fonts.googleapis"]'),
+  window.document.querySelector('link[href*="fonts.googleapis"]') ? 'one was added' : 'none');
+
 let failed = 0;
 for (const r of results) {
   if (!r.pass) failed += 1;
