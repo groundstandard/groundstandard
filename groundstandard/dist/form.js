@@ -50,7 +50,9 @@
     '.gsf-msg.ok{display:block;background:var(--gsf-ok-bg,rgba(46,125,83,.12));border:1px solid var(--gsf-ok-bc,rgba(46,125,83,.4))}',
     '.gsf-msg.bad{display:block;background:var(--gsf-bad-bg,rgba(198,72,60,.12));border:1px solid var(--gsf-bad-bc,rgba(198,72,60,.4))}',
     '.gsf-fine{margin-top:10px;font-size:12px;opacity:.6}',
-    '.gsf-fine a{color:inherit}',
+    '.gsf-fine a{color:var(--gsf-accent,inherit);font-weight:600;text-decoration:underline;text-underline-offset:2px}',
+    '.gsf-fine-links{text-align:center;opacity:.85}',
+    '.gsf-fine-links .gsf-sep{margin:0 10px;opacity:.5}',
     '.gsf-bone{background:var(--gsf-accent,currentColor);opacity:.08;border-radius:var(--gsf-r,8px);animation:gsf-pulse 1.4s ease-in-out infinite}',
     '.gsf-bone-label{width:90px;height:11px;margin-bottom:6px}',
     '.gsf-bone-field{width:100%;height:43px}',
@@ -425,11 +427,19 @@
 
     if (def.privacy_url || def.terms_url) {
       var fine = el('div', { class: 'gsf-fine' });
-      fine.appendChild(document.createTextNode('By submitting you agree to our '));
-      if (def.privacy_url) fine.appendChild(el('a', { href: def.privacy_url, target: '_blank', rel: 'noopener' }, 'privacy policy'));
-      if (def.privacy_url && def.terms_url) fine.appendChild(document.createTextNode(' and '));
-      if (def.terms_url) fine.appendChild(el('a', { href: def.terms_url, target: '_blank', rel: 'noopener' }, 'terms of service'));
-      fine.appendChild(document.createTextNode('.'));
+      if (theme.fine_style === 'links') {
+        // Two plain links side by side, the way a site's footer has them.
+        fine.className = 'gsf-fine gsf-fine-links';
+        if (def.privacy_url) fine.appendChild(el('a', { href: def.privacy_url, target: '_blank', rel: 'noopener' }, 'Privacy Policy'));
+        if (def.privacy_url && def.terms_url) fine.appendChild(el('span', { class: 'gsf-sep', 'aria-hidden': 'true' }, '|'));
+        if (def.terms_url) fine.appendChild(el('a', { href: def.terms_url, target: '_blank', rel: 'noopener' }, 'Terms of Service'));
+      } else {
+        fine.appendChild(document.createTextNode('By submitting you agree to our '));
+        if (def.privacy_url) fine.appendChild(el('a', { href: def.privacy_url, target: '_blank', rel: 'noopener' }, 'privacy policy'));
+        if (def.privacy_url && def.terms_url) fine.appendChild(document.createTextNode(' and '));
+        if (def.terms_url) fine.appendChild(el('a', { href: def.terms_url, target: '_blank', rel: 'noopener' }, 'terms of service'));
+        fine.appendChild(document.createTextNode('.'));
+      }
       form.appendChild(fine);
     }
 

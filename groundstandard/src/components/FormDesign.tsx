@@ -43,6 +43,7 @@ export type FormTheme = {
   label_weight?: 400 | 500 | 600 | 700;
   button_size?: number;
   button_weight?: 400 | 500 | 600 | 700 | 800;
+  fine_style?: 'sentence' | 'links';   // the privacy/terms line under the button
 
   // shape
   radius?: number;
@@ -121,7 +122,7 @@ export const PRESETS: { name: string; label: string; blurb: string; theme: FormT
   { name: 'floating', label: 'Floating', blurb: 'Labels inside the boxes that float up as you type.',
     theme: { accent: '#2563eb', label_position: 'floating', input_height: 56, radius: 10, focus_style: 'glow', transitions: true } },
   { name: 'fight-night', label: 'Fight Night', blurb: 'Black card, dark inputs, an amber button in capitals.',
-    theme: { card: true, card_bg: '#0a0a0a', card_border: '#2a2a2a', card_padding: 24, radius: 2, text: '#f5f5f5', input_bg: '#161616', input_border: '#2a2a2a', input_text: '#f5f5f5', placeholder: '#8a8a8a', label_position: 'placeholder', textarea_size: 'tall', accent: '#f5b301', button_text: '#1a1a1a', button_weight: 700, button_case: 'upper', button_spacing: 1, button_height: 48, gap: 12 } },
+    theme: { card: true, card_bg: '#0a0a0a', card_border: '#2a2a2a', card_padding: 24, radius: 2, text: '#f5f5f5', input_bg: '#161616', input_border: '#2a2a2a', input_text: '#f5f5f5', placeholder: '#8a8a8a', label_position: 'placeholder', textarea_size: 'tall', accent: '#f5b301', button_text: '#1a1a1a', button_weight: 700, button_case: 'upper', button_spacing: 1, button_height: 48, gap: 12, fine_style: 'links' } },
 ];
 
 // Two themes are the same look if they agree on everything but the custom CSS
@@ -135,7 +136,7 @@ const lookOf = (t: FormTheme) => {
 const GROUPS: Record<string, (keyof FormTheme)[]> = {
   brand: ['accent', 'font_family'],
   colours: ['text', 'label_color', 'input_bg', 'input_text', 'placeholder', 'input_border', 'button_bg', 'button_text', 'button_hover_bg', 'button_border', 'card_bg', 'card_border', 'ok_color', 'bad_color'],
-  text: ['font_size', 'label_size', 'label_weight', 'button_size', 'button_weight'],
+  text: ['font_size', 'label_size', 'label_weight', 'button_size', 'button_weight', 'fine_style'],
   inputs: ['input_style', 'input_height', 'radius', 'border_width', 'label_position', 'gap', 'textarea_size', 'input_shadow'],
   button: ['button_width', 'button_align', 'button_radius', 'button_height', 'button_case', 'button_spacing', 'button_gradient', 'button_shadow', 'button_hover'],
   card: ['card', 'card_padding', 'card_shadow', 'max_width'],
@@ -235,6 +236,10 @@ export default function FormDesign({ theme, onChange, onReplace }: {
               options={[{ value: 600, label: '600' }, { value: 400, label: '400' }, { value: 500, label: '500' }, { value: 700, label: '700' }, { value: 800, label: '800' }]} />
           </Control>
           <Range label="Button text size" value={theme.button_size} fallback={15} min={13} max={20} onChange={v => set('button_size', v)} />
+          <Control label="Privacy & terms line" hint={theme.fine_style === 'links' ? 'Privacy Policy | Terms of Service, centred under the button.' : '"By submitting you agree to our privacy policy and terms of service."'}>
+            <Segmented value={theme.fine_style} onChange={v => set('fine_style', v)}
+              options={[{ value: 'sentence', label: 'Sentence' }, { value: 'links', label: 'Links' }]} />
+          </Control>
         </div>
       </Group>
 

@@ -510,6 +510,9 @@ console.log('\nhow it looks — nothing set:');
     : bad("today's look is every variable's fallback", 'a fallback changed');
   is('the label is still above the box', form.querySelector('.gsf-row').firstChild.className, 'gsf-label');
   is('the button is a submit button', form.querySelector('.gsf-btn').type, 'submit');
+  css.includes('.gsf-fine a{color:var(--gsf-accent,inherit);font-weight:600;text-decoration:underline')
+    ? ok('the privacy and terms links read as links, in the accent when there is one')
+    : bad('the privacy and terms links read as links', 'rule changed');
 }
 
 console.log('\nhow it looks — the Design panel set something:');
@@ -559,6 +562,30 @@ console.log('\nhow it looks — labels, columns, the message box:');
   const row = floating.doc.querySelector('form.gsf .gsf-row');
   is('floating labels come after their input', row.lastChild.className, 'gsf-label');
   is('  the input keeps a blank placeholder so the label can float', row.firstChild.placeholder, ' ');
+}
+
+console.log('\nhow it looks — the privacy and terms line:');
+{
+  const both = { ...DEF, terms_url: 'https://example.com/terms' };
+  const sentence = await mount({ definition: both });
+  const fine = sentence.doc.querySelector('.gsf-fine');
+  fine.textContent.startsWith('By submitting you agree to our')
+    ? ok('by default it is a sentence') : bad('by default it is a sentence', fine.textContent);
+  is('  with both links in it', fine.querySelectorAll('a[target="_blank"]').length, 2);
+
+  const links = await mount({ definition: { ...both, theme: { fine_style: 'links' } } });
+  const line = links.doc.querySelector('.gsf-fine');
+  line.classList.contains('gsf-fine-links') ? ok('as links, it is a centred pair') : bad('as links, it is a centred pair', line.className);
+  const a = [...line.querySelectorAll('a')];
+  is('  Privacy Policy', a[0].textContent, 'Privacy Policy');
+  is('  Terms of Service', a[1].textContent, 'Terms of Service');
+  is('  each opening its own page', a.map(x => x.getAttribute('href')).join(' '), 'https://example.com/privacy https://example.com/terms');
+  is('  a divider between them', line.querySelectorAll('.gsf-sep').length, 1);
+  line.textContent.includes('By submitting')
+    ? bad('  and no sentence', line.textContent) : ok('  and no sentence');
+
+  const one = await mount({ definition: { ...both, privacy_url: null, theme: { fine_style: 'links' } } });
+  is('one link alone has no divider', one.doc.querySelectorAll('.gsf-fine .gsf-sep').length, 0);
 }
 
 console.log('\nhow it looks — a Google Font:');
