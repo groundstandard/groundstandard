@@ -560,6 +560,8 @@ function FormList({ forms, onNew, onOpen }: {
 
 /* ── one field ─────────────────────────────────────────────────────────── */
 
+const parseOptions = (raw: string) => raw.split(',').map(s => s.trim()).filter(Boolean);
+
 function FieldRow({ field, index, count, onChange, onMoveTo, onDropFrom, onRemove }: {
   field: FormField;
   index: number;
@@ -571,6 +573,15 @@ function FieldRow({ field, index, count, onChange, onMoveTo, onDropFrom, onRemov
 }) {
   const [over, setOver] = useState(false);
   const Icon = iconFor(field.type);
+
+  /* The choices are stored parsed, but a visitor types them as one line. Keep
+     what they actually typed while they are typing, or trimming each choice on
+     every keystroke eats the space they just pressed. The draft is only shown
+     while it still parses to the choices this row holds, so a row that gets
+     reused for a different field falls back to that field's own choices. */
+  const [optionDraft, setOptionDraft] = useState('');
+  const options = (field.options ?? []).join(', ');
+  const optionValue = parseOptions(optionDraft).join(', ') === options ? optionDraft : options;
 
   return (
     <div
@@ -677,8 +688,8 @@ function FieldRow({ field, index, count, onChange, onMoveTo, onDropFrom, onRemov
           />
         ) : field.type === 'select' ? (
           <input
-            value={(field.options ?? []).join(', ')}
-            onChange={(e) => onChange({ options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
+            value={optionValue}
+            onChange={(e) => { setOptionDraft(e.target.value); onChange({ options: parseOptions(e.target.value) }); }}
             className="min-w-[150px] flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none transition focus:border-blue-400"
             placeholder="Adult, Youth  —  or  Jiu-Jitsu / BJJ = jiu-jitsu"
             title={'Separate the choices with commas.' + String.fromCharCode(10) +
