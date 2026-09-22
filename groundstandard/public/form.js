@@ -31,7 +31,10 @@
   // equivalent (filled inputs, floating labels, a card, a hover) is a modifier
   // class on the root and is inert until the class is there.
   var CSS = [
-    '.gsf{max-width:var(--gsf-mw,520px);font-family:var(--gsf-font,inherit);font-size:var(--gsf-fs,inherit);color:var(--gsf-text,inherit)}',
+    // Centred in whatever it is dropped into. A max width with no margin sits
+    // against the left edge of a wide section, which is what the hard-coded
+    // forms it replaced never did -- every one of them centred itself.
+    '.gsf{max-width:var(--gsf-mw,520px);margin-left:auto;margin-right:auto;font-family:var(--gsf-font,inherit);font-size:var(--gsf-fs,inherit);color:var(--gsf-text,inherit)}',
     '.gsf *{box-sizing:border-box}',
     '.gsf-row{margin-bottom:var(--gsf-gap,14px)}',
     '.gsf-label{display:block;margin-bottom:6px;font-size:var(--gsf-lbl-fs,13px);font-weight:var(--gsf-lbl-fw,600);color:var(--gsf-lbl-c,inherit);opacity:.85}',
