@@ -497,6 +497,51 @@
     return payload;
   }
 
+  // Our copy is the lead plus what the old Duda widget always sent beside it,
+  // so the reporting that grew up on that shape keeps working: the person under
+  // the old camelCase names, and every address this form can send a visitor to,
+  // each with why and when. The CRM never sees any of this.
+  function reportCopy(def, data, payload) {
+    var who = userData(data);
+    var copy = Object.assign({}, payload);
+    if (copy.firstName == null && (data.first_name || who.first_name)) copy.firstName = data.first_name || who.first_name;
+    if (copy.lastName == null && (data.last_name || who.last_name)) copy.lastName = data.last_name || who.last_name;
+
+    var urls = [{
+      url: def.ghl_webhook_url || '(not configured)',
+      purpose: 'HighLevel CRM — receives form submission data to create/update contacts',
+      trigger: 'on_form_submit',
+    }];
+    if (def.redirect_enabled) {
+      var rules = def.redirect_rules || [];
+      rules.forEach(function (r) {
+        if (!r || !r.url) return;
+        urls.push({
+          url: r.url,
+          purpose: r.field + ' = ' + r.value + ' redirect — user lands here after successful submission',
+          trigger: 'on_success_when_' + slugish(r.field) + '_is_' + slugish(r.value),
+        });
+      });
+      if (def.redirect_default) {
+        urls.push({
+          url: def.redirect_default,
+          purpose: 'Default redirect — user lands here after successful submission when no rule matches',
+          trigger: 'on_success',
+        });
+      }
+      if (!rules.length && !def.redirect_default) {
+        if (def.redirect_adult) urls.push({ url: def.redirect_adult, purpose: 'Adult/Both program redirect — user lands here after successful submission', trigger: 'on_success_when_program_is_adult_or_both' });
+        if (def.redirect_youth) urls.push({ url: def.redirect_youth, purpose: 'Youth program redirect — user lands here after successful submission', trigger: 'on_success_when_program_is_youth' });
+      }
+    }
+    copy._urls = urls;
+    return copy;
+  }
+
+  function slugish(v) {
+    return String(v == null ? '' : v).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  }
+
   function submit(form, def, btn, msg) {
     // The trap was filled in, so this is not a person. Behave exactly as if it
     // worked: a bot that is told it failed simply tries again.
@@ -536,9 +581,7 @@
         fetch(REPORT, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(Object.assign({}, payload, {
-            _urls: [{ url: def.ghl_webhook_url || '(not configured)', purpose: 'HighLevel CRM', trigger: 'on_form_submit' }],
-          })),
+          body: JSON.stringify(reportCopy(def, data, payload)),
         }).catch(function () {});
       } catch (err) { /* never blocks */ }
     }

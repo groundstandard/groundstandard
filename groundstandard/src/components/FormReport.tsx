@@ -121,7 +121,7 @@ const STALE_DAYS = 14;
 
 // The answers worth a glance in a row: everything the visitor chose or typed
 // that is not already its own column.
-const PERSON = new Set(['first_name', 'last_name', 'name', 'email', 'phone']);
+const PERSON = new Set(['first_name', 'last_name', 'firstName', 'lastName', 'name', 'email', 'phone']);
 const answerLine = (r: SubmissionRow) =>
   Object.entries(r.answers ?? {})
     .filter(([k, v]) => !PERSON.has(k) && v !== '' && v !== null && v !== undefined && v !== false)

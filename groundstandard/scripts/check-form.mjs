@@ -192,6 +192,17 @@ console.log('\nwhat reaches GoHighLevel:');
 
   const report = calls.find(c => c.url.includes('railway.app'));
   report ? ok('a copy came to us as well') : bad('a copy came to us as well', 'no reporting call');
+  if (report) {
+    // The shape the old Duda widget sent, so the reporting built on it keeps working.
+    is('  the person under the old camelCase names too', report.body.firstName + ' ' + report.body.lastName, 'Marco Alvarez');
+    is('  every address the form can send them to', report.body._urls.length, 3);
+    is('    the CRM first', report.body._urls[0].trigger, 'on_form_submit');
+    is('    then the adult page', report.body._urls[1].trigger, 'on_success_when_program_is_adult_or_both');
+    is('    and the youth page', report.body._urls[2].trigger, 'on_success_when_program_is_youth');
+    'firstName' in crm.body
+      ? bad('  none of which reaches the CRM', 'firstName was sent to GoHighLevel')
+      : ok('  none of which reaches the CRM');
+  }
 
   is('it sent them to the adult page', nav.to, 'https://example.com/adult');
 }
@@ -677,6 +688,9 @@ console.log('\nwhere they go afterwards — rules:');
   fill(kids.doc.querySelector('form.gsf'), { ...person, program: 'Youth', interest: 'bjj' });
   await submit(kids.doc.querySelector('form.gsf'), kids.window);
   is('the first matching rule wins', kids.nav.to, 'https://example.com/kids');
+  const told = kids.calls.find(c => c.url.includes('railway.app')).body._urls.map(u => u.trigger).join(' ');
+  is('  and reporting is told every rule and the else',
+    told, 'on_form_submit on_success_when_program_is_youth on_success_when_interest_is_bjj on_success');
 
   const bjj = await mount({ definition: ruled });
   fill(bjj.doc.querySelector('form.gsf'), { ...person, program: 'Adult', interest: 'bjj' });
