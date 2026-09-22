@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Form test · Ground Standard</title>
+  <!--
+    A page with nothing on it but one form, opened from the builder's preview.
+    It embeds the form exactly the way a client site does — the same snippet,
+    the same script — so what happens here is what happens on the site: a
+    submission goes to the CRM and to our reporting for real.
+
+    Opened as /try.html?form=<slug>&key=<anon key>[&dark=1]. The key is the
+    public one that sits in every client site's HTML, so the URL gives nothing
+    away.
+  -->
+  <style>
+    body{margin:0;min-height:100vh;padding:48px 16px;box-sizing:border-box;display:flex;justify-content:center;align-items:flex-start;
+      font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#fff;color:#1f2937}
+    body.dark{background:#0b0f19;color:#e5e7eb}
+    .wrap{width:100%;max-width:560px}
+    .bar{display:flex;justify-content:space-between;gap:16px;align-items:baseline;margin-bottom:22px;font-size:12px;opacity:.65}
+    .bar b{font-weight:600}
+    .bar button{font:inherit;background:none;border:1px solid currentColor;border-radius:999px;padding:2px 10px;color:inherit;cursor:pointer;opacity:.8}
+    .note{margin-top:28px;font-size:12px;opacity:.5;text-align:center}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="bar">
+      <span><b>Test page.</b> A submission here is real: it goes to the CRM and to reporting.</span>
+      <button type="button" id="toggle">Dark</button>
+    </div>
+    <div id="mount"></div>
+    <p class="note" id="note"></p>
+  </div>
+  <script>
+    (function () {
+      var q = new URLSearchParams(location.search);
+      var slug = q.get('form');
+      var key = q.get('key');
+      var mount = document.getElementById('mount');
+      var note = document.getElementById('note');
+      var toggle = document.getElementById('toggle');
+
+      function paint(dark) {
+        document.body.className = dark ? 'dark' : '';
+        toggle.textContent = dark ? 'Light' : 'Dark';
+      }
+      paint(q.get('dark') === '1');
+      toggle.addEventListener('click', function () { paint(document.body.className !== 'dark'); });
+
+      if (!slug || !key) {
+        mount.textContent = 'Open this page from the builder: it needs ?form= and ?key= in the address.';
+        return;
+      }
+
+      document.title = slug + ' · test · Ground Standard';
+      note.textContent = 'Embedded as <div data-gs-form="' + slug + '"> with the live form.js, the same as on a client site.';
+
+      // The same two lines a client site pastes. The mount has to exist before
+      // the script runs, and the script reads its key off its own tag.
+      mount.setAttribute('data-gs-form', slug);
+      var s = document.createElement('script');
+      s.src = '/form.js?v=' + Date.now();
+      s.setAttribute('data-key', key);
+      document.body.appendChild(s);
+    })();
+  </script>
+</body>
+</html>

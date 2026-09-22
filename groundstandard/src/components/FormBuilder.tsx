@@ -478,7 +478,7 @@ export default function FormBuilder({ onBackToLaunch }: { onBackToLaunch?: () =>
             </div>
 
             <div className="space-y-5 xl:sticky xl:top-24">
-              <Preview def={editing} />
+              <Preview def={editing} saved={!!editing.id && !dirty} />
               <Embed def={editing} />
             </div>
           </div>
@@ -872,7 +872,7 @@ const HOSTS: Record<Host, { background: string; color: string }> = {
 
 type Shown = 'form' | 'ok' | 'bad';
 
-function Preview({ def }: { def: FormDef }) {
+function Preview({ def, saved }: { def: FormDef; saved: boolean }) {
   const ready = useEmbed();
   const mount = useRef<HTMLDivElement>(null);
   const [host, setHost] = useState<Host>('light');
@@ -926,6 +926,8 @@ function Preview({ def }: { def: FormDef }) {
         </div>
       </div>
 
+      <LiveLink def={def} saved={saved} dark={host === 'dark'} />
+
       <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-5 py-2.5">
         <span className="text-[11px] text-slate-400">Show</span>
         <div className="inline-flex gap-0.5 rounded-lg border border-slate-200 p-0.5">
@@ -954,6 +956,45 @@ function Preview({ def }: { def: FormDef }) {
           </ul>
           <p className="mt-1.5 text-[11px] text-slate-400">The visitor never sees these.</p>
         </div>
+      )}
+    </div>
+  );
+}
+
+/* ── the live form, in a new tab ───────────────────────────────────────── */
+
+// /try.html embeds the form the way a client site does, so a submission there
+// is a real one — the CRM and reporting both receive it. It reads the saved
+// form, so it is only offered once there is a saved form to read.
+function LiveLink({ def, saved, dark }: { def: FormDef; saved: boolean; dark: boolean }) {
+  const key = (import.meta as unknown as { env: Record<string, string> }).env?.VITE_SUPABASE_ANON_KEY ?? '';
+  const slug = def.slug || slugify(def.name);
+  const url = `${window.location.origin}/try.html?form=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}${dark ? '&dark=1' : ''}`;
+  const why = !def.id
+    ? 'Save the form first — the live page reads what is saved.'
+    : !saved
+      ? 'You have unsaved changes; the live page shows the last saved version.'
+      : null;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 px-5 py-2.5">
+      <span className="text-[11px] leading-relaxed text-slate-400">
+        {why ?? 'Fill it in there and submit: the lead goes to the CRM and to reporting for real.'}
+      </span>
+      {def.id ? (
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className={`inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+            saved ? 'bg-slate-900 text-white hover:bg-slate-800' : 'border border-slate-200 bg-white text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          Open the live form <ExternalLink className="h-3.5 w-3.5" />
+        </a>
+      ) : (
+        <span className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-300">
+          Open the live form <ExternalLink className="h-3.5 w-3.5" />
+        </span>
       )}
     </div>
   );
