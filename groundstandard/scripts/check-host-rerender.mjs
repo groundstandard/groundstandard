@@ -96,6 +96,21 @@ check('typing survives an unrelated change to the mount',
   mount.querySelector('input[name="first_name"]').value === 'Juan Carlos',
   mount.querySelector('input[name="first_name"]').value || 'lost');
 
+// A client-side route change: the host tears the page down and builds the next
+// one. For a moment there is no mount at all, then a brand new one appears --
+// which is what happens on this site when you leave a page and come back
+// without reloading.
+const holder = mount.parentNode;
+holder.removeChild(mount);
+await new Promise((r) => setTimeout(r, 120));
+const arrived = window.document.createElement('div');
+arrived.setAttribute('data-gs-form', 'killer-b-contact');
+arrived.setAttribute('data-gs-source', 'website blog is jiu jitsu safe');
+holder.appendChild(arrived);
+await new Promise((r) => setTimeout(r, 400));
+check('a form drawn after a client-side navigation', !!arrived.querySelector('form'),
+  arrived.querySelector('form') ? 'drawn' : 'the new page had no form until a reload');
+
 let failed = 0;
 for (const r of results) {
   if (!r.pass) failed += 1;
