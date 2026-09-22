@@ -14,7 +14,7 @@
 // a question about what a visitor will see, and the snippet reads as one thing
 // to copy rather than a wall of key.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   AlignLeft, ArrowLeft, AtSign, Check, CheckSquare, ChevronDown, ClipboardList,
@@ -22,6 +22,8 @@ import {
   Search, Trash2, Type, X,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import FormDesign, { countSet, pruneTheme } from './FormDesign';
+import type { FormTheme } from './FormDesign';
 
 type FieldType = 'text' | 'email' | 'phone' | 'select' | 'textarea' | 'checkbox' | 'hidden';
 
@@ -33,6 +35,7 @@ type FormField = {
   placeholder?: string;
   options?: string[];
   value?: string;       // hidden fields only: the fixed value that is sent
+  width?: 'full' | 'half'; // two half fields share a row; absent means full
 };
 
 type FormDef = {
@@ -52,6 +55,7 @@ type FormDef = {
   privacy_url: string | null;
   terms_url: string | null;
   active: boolean;
+  theme: FormTheme;     // the Design panel; {} means "look like the site"
   updated_at?: string;
 };
 
@@ -83,6 +87,7 @@ const blank = (): FormDef => ({
   privacy_url: null,
   terms_url: null,
   active: true,
+  theme: {},
 });
 
 const slugify = (s: string) =>
@@ -125,8 +130,10 @@ export default function FormBuilder({ onBackToLaunch }: { onBackToLaunch?: () =>
 
   const open = (f: FormDef | null) => {
     setError(null);
-    setEditing(f);
-    setSaved(f ? JSON.stringify(f) : '');
+    // A row saved before the Design panel existed has no theme; same as empty.
+    const next = f ? { ...f, theme: f.theme ?? {} } : null;
+    setEditing(next);
+    setSaved(next ? JSON.stringify(next) : '');
   };
 
   const dirty = editing !== null && JSON.stringify(editing) !== saved;
@@ -176,6 +183,12 @@ export default function FormBuilder({ onBackToLaunch }: { onBackToLaunch?: () =>
   };
 
   const patch = (p: Partial<FormDef>) => setEditing(cur => (cur ? { ...cur, ...p } : cur));
+
+  // Design choices. Anything cleared is dropped rather than kept as undefined, so
+  // {} stays the one way to spell "match the site".
+  const setTheme = (p: Partial<FormTheme>) =>
+    setEditing(cur => (cur ? { ...cur, theme: pruneTheme({ ...cur.theme, ...p }) } : cur));
+  const replaceTheme = (t: FormTheme) => patch({ theme: pruneTheme(t) });
 
   const setField = (i: number, p: Partial<FormField>) =>
     setEditing(cur => cur
@@ -389,6 +402,19 @@ export default function FormBuilder({ onBackToLaunch }: { onBackToLaunch?: () =>
                   <TextField label="Terms of service link" value={editing.terms_url ?? ''}
                     onChange={(v) => patch({ terms_url: v || null })} placeholder="https://…" mono />
                 </div>
+              </Card>
+
+              <Card>
+                <CardHead
+                  title="Design"
+                  hint="Empty means: look like the site. Pick a preset, then adjust."
+                  right={countSet(editing.theme) > 0 ? (
+                    <span className="whitespace-nowrap rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-500">
+                      {countSet(editing.theme)} set
+                    </span>
+                  ) : null}
+                />
+                <FormDesign theme={editing.theme} onChange={setTheme} onReplace={replaceTheme} />
               </Card>
 
               <Card>
@@ -678,6 +704,22 @@ function FieldRow({ field, index, count, onChange, onMoveTo, onDropFrom, onRemov
           </button>
         )}
 
+        {field.type !== 'hidden' && field.type !== 'checkbox' && (
+          <button
+            onClick={() => onChange({ width: field.width === 'half' ? undefined : 'half' })}
+            title={field.width === 'half'
+              ? 'Half width: shares a row with the next half-width field. Click for full.'
+              : 'Full width. Click for half — two half fields sit side by side.'}
+            className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${
+              field.width === 'half'
+                ? 'bg-slate-900 text-white'
+                : 'border border-slate-200 bg-white text-slate-400 hover:text-slate-800'
+            }`}
+          >
+            ½
+          </button>
+        )}
+
         {field.type === 'hidden' ? (
           <input
             value={field.value ?? ''}
@@ -713,12 +755,75 @@ function FieldRow({ field, index, count, onChange, onMoveTo, onDropFrom, onRemov
 // Rendered from the same definition the embed reads, so there is never a second
 // idea of what the form looks like. The browser frame is there so nobody takes
 // this for a picture of the form.
+declare global {
+  interface Window {
+    GSF?: { render: (mount: HTMLElement, def: unknown, opts?: { preview?: boolean }) => void };
+  }
+}
+
+// The preview is the embed. form.js is loaded from this same origin — Vite
+// serves public/ at the root in development and Netlify does in production —
+// and its own render() draws the form here, so the form on this screen and the
+// form on a client's site are one piece of code. Loaded without a key and on a
+// page with no [data-gs-form], the script does nothing else.
+function useEmbed() {
+  const [ready, setReady] = useState(() => !!window.GSF);
+  useEffect(() => {
+    if (window.GSF) { setReady(true); return; }
+    let tag = document.getElementById('gsf-embed') as HTMLScriptElement | null;
+    if (!tag) {
+      tag = document.createElement('script');
+      tag.id = 'gsf-embed';
+      tag.src = '/form.js';
+      document.head.appendChild(tag);
+    }
+    const done = () => setReady(!!window.GSF);
+    tag.addEventListener('load', done);
+    return () => tag?.removeEventListener('load', done);
+  }, []);
+  return ready;
+}
+
+// What the form borrows when nothing is set: a light page or a dark one. The
+// only honest way to preview a form that takes its colours from the site.
+type Host = 'light' | 'dark';
+const HOSTS: Record<Host, { background: string; color: string }> = {
+  light: { background: '#ffffff', color: '#1f2937' },
+  dark: { background: '#0b0f19', color: '#e5e7eb' },
+};
+
+type Shown = 'form' | 'ok' | 'bad';
+
 function Preview({ def }: { def: FormDef }) {
+  const ready = useEmbed();
+  const mount = useRef<HTMLDivElement>(null);
+  const [host, setHost] = useState<Host>('light');
+  const [shown, setShown] = useState<Shown>('form');
+  const styled = countSet(def.theme) > 0;
+
+  useEffect(() => {
+    if (!ready || !mount.current || !window.GSF) return;
+    window.GSF.render(mount.current, def, { preview: true });
+    if (shown !== 'form') {
+      const msg = mount.current.querySelector('.gsf-msg');
+      if (msg) {
+        msg.className = `gsf-msg ${shown}`;
+        msg.textContent = shown === 'ok' ? def.success_message : def.error_message;
+      }
+    }
+  }, [ready, def, shown]);
+
+  const pill = (on: boolean) =>
+    `rounded-md px-2 py-0.5 text-[11px] font-medium transition ${on ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-900'}`;
+
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
-      <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-3">
         <h2 className="text-sm font-semibold text-slate-900">Preview</h2>
-        <span className="text-[11px] text-slate-400">what the visitor sees</span>
+        <div className="inline-flex gap-0.5 rounded-lg border border-slate-200 p-0.5" title="The page the form sits on">
+          <button onClick={() => setHost('light')} className={pill(host === 'light')}>Light site</button>
+          <button onClick={() => setHost('dark')} className={pill(host === 'dark')}>Dark site</button>
+        </div>
       </div>
 
       <div className="bg-slate-100 p-4">
@@ -732,60 +837,30 @@ function Preview({ def }: { def: FormDef }) {
             </div>
           </div>
 
-          <div className="space-y-3.5 p-4">
-            {def.fields.filter(f => f.type !== 'hidden').map((f, i) => (
-              <div key={i}>
-                {f.type === 'checkbox' ? (
-                  <label className="flex items-start gap-2 text-xs leading-relaxed text-slate-600">
-                    <input type="checkbox" disabled className="mt-0.5 accent-blue-600" />
-                    <span>{f.label}{f.required ? ' *' : ''}</span>
-                  </label>
-                ) : (
-                  <>
-                    <div className="mb-1.5 text-[11px] font-semibold text-slate-600">
-                      {f.label}
-                      {!f.required && <span className="font-normal text-slate-400"> (optional)</span>}
-                    </div>
-                    {f.type === 'select' ? (
-                      <div className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-400">
-                        {f.placeholder || 'Choose one'}
-                        <ChevronDown className="h-3 w-3" />
-                      </div>
-                    ) : f.type === 'textarea' ? (
-                      <div className="h-16 rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-300">
-                        {f.placeholder}
-                      </div>
-                    ) : (
-                      <div className="rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-300">
-                        {f.placeholder || ' '}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            ))}
-
-            {!def.fields.length && (
-              <p className="py-6 text-center text-xs text-slate-400">No fields yet.</p>
-            )}
-
-            <div className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 py-2.5 text-center text-xs font-semibold text-white">
-              {def.submit_label || 'Send'}
-            </div>
-
-            {(def.privacy_url || def.terms_url) && (
-              <p className="text-[10px] leading-relaxed text-slate-400">
-                By submitting you agree to our{def.privacy_url ? ' privacy policy' : ''}
-                {def.privacy_url && def.terms_url ? ' and' : ''}{def.terms_url ? ' terms of service' : ''}.
-              </p>
-            )}
+          <div
+            className="p-4 transition-colors"
+            style={{ ...HOSTS[host], fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif', fontSize: 15, lineHeight: 1.5 }}
+          >
+            <div ref={mount} />
+            {!ready && <p className="py-6 text-center text-xs opacity-50">Loading the form…</p>}
+            {ready && !def.fields.length && <p className="pb-2 text-center text-xs opacity-50">No fields yet.</p>}
           </div>
         </div>
       </div>
 
+      <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-5 py-2.5">
+        <span className="text-[11px] text-slate-400">Show</span>
+        <div className="inline-flex gap-0.5 rounded-lg border border-slate-200 p-0.5">
+          <button onClick={() => setShown('form')} className={pill(shown === 'form')}>The form</button>
+          <button onClick={() => setShown('ok')} className={pill(shown === 'ok')}>Thank-you</button>
+          <button onClick={() => setShown('bad')} className={pill(shown === 'bad')}>Error</button>
+        </div>
+      </div>
+
       <p className="border-t border-slate-100 px-5 py-3 text-[11px] leading-relaxed text-slate-500">
-        The site's own fonts and colours carry through, so on the page itself it will look like
-        the rest of that site rather than like this.
+        {styled
+          ? "This is the real form, drawn by the same script the site runs. Where a colour or font is left on the site default, the site's own carries through."
+          : "The site's own fonts and colours carry through, so on the page itself it will look like the rest of that site rather than like this."}
       </p>
 
       {def.fields.some(f => f.type === 'hidden') && (

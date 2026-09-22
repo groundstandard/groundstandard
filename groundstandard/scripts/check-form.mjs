@@ -11,7 +11,7 @@
 // Run:  node scripts/check-form.mjs
 
 import fs from 'node:fs';
-import { JSDOM } from 'jsdom';
+import { JSDOM, VirtualConsole } from 'jsdom';
 
 const SOURCE = fs.readFileSync(new URL('../public/form.js', import.meta.url), 'utf8');
 
@@ -47,9 +47,14 @@ const is = (name, got, want) => (got === want ? ok(name, String(got)) : bad(name
 const PAGE = 'https://roninbjj.com/trial?utm_source=fb';
 
 async function mount({ reportFails = false, webhookFails = false, definition = DEF, page = PAGE, seed = null, store = null, holdDefinition = false, definitionDelay = 0 } = {}) {
+  // jsdom cannot parse CSS nesting, which the custom-css block uses; browsers
+  // can. Everything else it has to say still comes through.
+  const quiet = new VirtualConsole();
+  quiet.forwardTo(console, { jsdomErrors: 'none' });
+  quiet.on('jsdomError', (e) => { if (!/parse CSS/.test(e.message)) console.error(e); });
   const dom = new JSDOM(
     `<!doctype html><html><body><div data-gs-form="${definition.slug}"></div></body></html>`,
-    { url: page, runScripts: 'outside-only' },
+    { url: page, runScripts: 'outside-only', virtualConsole: quiet },
   );
   const { window } = dom;
   const calls = [];
@@ -487,6 +492,141 @@ console.log('\nwho filled it in, for the conversion tags:');
   const restored = after.window.dataLayer.find(e => e.user_data && !e.event);
   restored ? ok('and pushed again there, before lead_thank_you fires') : bad('and pushed again there', 'not on the dataLayer');
   if (restored) is('  same email', restored.user_data.email_address, 'nina@example.com');
+}
+
+console.log('\nhow it looks — nothing set:');
+{
+  const { doc } = await mount();
+  const form = doc.querySelector('form.gsf');
+  is('the root carries no variables', form.getAttribute('style'), null);
+  is('and no modifier classes', form.className, 'gsf');
+  is('one stylesheet on the page', doc.querySelectorAll('#gsf-css').length, 1);
+  is('nothing is loaded from Google', doc.querySelectorAll('link[id^="gsf-font"]').length, 0);
+  is('no custom css block', doc.querySelectorAll('style[id^="gsf-css-"]').length, 0);
+  const css = doc.getElementById('gsf-css').textContent;
+  ['var(--gsf-in-bc,rgba(128,128,128,.35))', 'var(--gsf-r,8px)', 'var(--gsf-btn-bg,var(--gsf-accent,currentColor))', 'var(--gsf-btn-c,#fff)', 'var(--gsf-gap,14px)']
+    .every(literal => css.includes(literal))
+    ? ok("today's look is every variable's fallback")
+    : bad("today's look is every variable's fallback", 'a fallback changed');
+  is('the label is still above the box', form.querySelector('.gsf-row').firstChild.className, 'gsf-label');
+  is('the button is a submit button', form.querySelector('.gsf-btn').type, 'submit');
+}
+
+console.log('\nhow it looks — the Design panel set something:');
+{
+  const themed = { ...DEF, theme: {
+    accent: '#c00000', radius: 12, input_style: 'filled', button_hover: 'lift', button_case: 'upper',
+    button_width: 'auto', button_align: 'right', card: true, transitions: true, input_height: 52,
+  } };
+  const { doc } = await mount({ definition: themed });
+  const form = doc.querySelector('form.gsf');
+  const style = form.getAttribute('style') || '';
+  style.includes('--gsf-accent:#c00000') ? ok('the accent reaches the root', '--gsf-accent:#c00000') : bad('the accent reaches the root', style);
+  style.includes('--gsf-r:12px') ? ok('  sizes arrive in px') : bad('  sizes arrive in px', style);
+  style.includes('--gsf-in-py:15px') ? ok('  a height becomes padding', '52px → 15px each side') : bad('  a height becomes padding', style);
+  style.includes('--gsf-btn-tt:uppercase') ? ok('  capitals on the button') : bad('  capitals on the button', style);
+  style.includes('--gsf-btn-m:0 0 0 auto') ? ok('  an auto-width button sits on the right') : bad('  an auto-width button sits on the right', style);
+  style.includes('--gsf-tr:') ? ok('  transitions are on') : bad('  transitions are on', style);
+  ['gsf-in-filled', 'gsf-hv-lift', 'gsf-card'].every(c => form.classList.contains(c))
+    ? ok('choices with no variable become classes on the root', form.className)
+    : bad('choices with no variable become classes on the root', form.className);
+  is('the form is still the same form', form.getAttribute('data-gsf'), 'ronin-trial');
+  is('  and its button still submits', form.querySelector('.gsf-btn').type, 'submit');
+}
+
+console.log('\nhow it looks — labels, columns, the message box:');
+{
+  const def = { ...DEF, fields: [
+    { ...DEF.fields[0], width: 'half' }, { ...DEF.fields[1], width: 'half' },
+    DEF.fields[2], { name: 'notes', label: 'Anything you want us to know?', type: 'textarea', required: false },
+    { ...DEF.fields[5], width: 'half' },
+  ], theme: { label_position: 'placeholder', textarea_size: 'tall' } };
+  const { doc } = await mount({ definition: def });
+  const form = doc.querySelector('form.gsf');
+  form.classList.contains('gsf-cols') ? ok('two half fields make the form a grid') : bad('two half fields make the form a grid', form.className);
+  is('  and exactly those two are half', form.querySelectorAll('.gsf-half').length, 2);
+  is('  a tickbox is never half', form.querySelector('.gsf-check').closest('.gsf-row').className, 'gsf-row');
+  form.classList.contains('gsf-lbl-hide') ? ok('labels move into the boxes') : bad('labels move into the boxes', form.className);
+  is('  the label words become the placeholder', form.elements.first_name.placeholder, 'First name');
+  is('  an optional one says so', form.elements.notes.placeholder, 'Anything you want us to know? (optional)');
+  is('  and the label is still there for screen readers', form.querySelectorAll('.gsf-label').length, 4);
+  is('the message box is tall', form.elements.notes.rows, 7);
+
+  const plain = await mount({ definition: { ...def, theme: {} } });
+  is('  and four rows when nothing is set', plain.doc.querySelector('form.gsf').elements.notes.rows, 4);
+
+  const floating = await mount({ definition: { ...def, theme: { label_position: 'floating' } } });
+  const row = floating.doc.querySelector('form.gsf .gsf-row');
+  is('floating labels come after their input', row.lastChild.className, 'gsf-label');
+  is('  the input keeps a blank placeholder so the label can float', row.firstChild.placeholder, ' ');
+}
+
+console.log('\nhow it looks — a Google Font:');
+{
+  const { window, doc } = await mount({ definition: { ...DEF, theme: { font_family: 'Barlow Condensed', font_google: true } } });
+  is('one stylesheet link, once', doc.querySelectorAll('#gsf-font-barlow-condensed').length, 1);
+  const href = doc.getElementById('gsf-font-barlow-condensed').getAttribute('href');
+  href.includes('family=Barlow+Condensed') && href.includes('display=swap')
+    ? ok('  pointing at the family', href) : bad('  pointing at the family', href);
+  is('  plus one preconnect to Google', doc.querySelectorAll('#gsf-font-pre').length, 1);
+  (doc.querySelector('form.gsf').getAttribute('style') || '').includes('--gsf-font:"Barlow Condensed",sans-serif')
+    ? ok('  and the form uses it') : bad('  and the form uses it', doc.querySelector('form.gsf').getAttribute('style'));
+  window.GSF.render(doc.querySelector('[data-gs-form]'), { ...DEF, theme: { font_family: 'Barlow Condensed', font_google: true } });
+  is('rendering again adds nothing', doc.querySelectorAll('link[rel="stylesheet"][id^="gsf-font-"]').length, 1);
+
+  const named = await mount({ definition: { ...DEF, theme: { font_family: 'Montserrat' } } });
+  is("a font the site already has is named but not fetched", named.doc.querySelectorAll('link[id^="gsf-font"]').length, 0);
+}
+
+console.log('\nhow it looks — custom css:');
+{
+  const { window, doc } = await mount({ definition: { ...DEF, theme: { css: '.gsf-btn{letter-spacing:1px}' } } });
+  const block = doc.getElementById('gsf-css-ronin-trial');
+  block ? ok('a block of its own, named after the form') : bad('a block of its own, named after the form', 'missing');
+  is("  wrapped in the form's own selector", block.textContent, '.gsf[data-gsf="ronin-trial"]{.gsf-btn{letter-spacing:1px}}');
+  window.GSF.render(doc.querySelector('[data-gs-form]'), { ...DEF, theme: { css: '.gsf-btn{letter-spacing:2px}' } });
+  is('  a change updates it in place', doc.querySelectorAll('#gsf-css-ronin-trial').length, 1);
+  doc.getElementById('gsf-css-ronin-trial').textContent.includes('2px') ? ok('  with the new text') : bad('  with the new text', doc.getElementById('gsf-css-ronin-trial').textContent);
+  window.GSF.render(doc.querySelector('[data-gs-form]'), { ...DEF, theme: {} });
+  is('  and clearing it removes the block', doc.querySelectorAll('#gsf-css-ronin-trial').length, 0);
+  is('the shared sheet is still one', doc.querySelectorAll('#gsf-css').length, 1);
+}
+
+console.log('\nhow it looks — a design change reaches a returning visitor:');
+{
+  const once = await mount();
+  const restyled = { ...DEF, theme: { accent: '#c00000' } };
+  const back = await mount({ store: once.saved, definition: restyled, definitionDelay: 40 });
+  is('the remembered form comes up plain first', back.doc.querySelector('form.gsf').getAttribute('style'), null);
+  await new Promise(r => setTimeout(r, 120));
+  (back.doc.querySelector('form.gsf').getAttribute('style') || '').includes('--gsf-accent:#c00000')
+    ? ok('then takes the new look when the definition lands')
+    : bad('then takes the new look when the definition lands', back.doc.querySelector('form.gsf').getAttribute('style'));
+
+  // A definition remembered from before the Design panel existed has no theme
+  // key at all, and the network is down: it has to render regardless.
+  const legacy = await mount({ store: once.saved, holdDefinition: true });
+  const remembered = JSON.parse(once.saved[Object.keys(once.saved).find(k => k.startsWith('gsf_def_'))]);
+  'theme' in remembered
+    ? bad('the remembered copy predates designs', 'it has a theme key')
+    : ok('the remembered copy predates designs');
+  legacy.doc.querySelector('form.gsf') ? ok('  and still renders') : bad('  and still renders', 'no form');
+}
+
+console.log("\nthe builder's preview is the same form, and cannot send:");
+{
+  const { window, doc, calls } = await mount();
+  window.GSF ? ok('form.js hands its render out') : bad('form.js hands its render out', 'no window.GSF');
+  const box = doc.createElement('div');
+  doc.body.appendChild(box);
+  window.GSF.render(box, DEF, { preview: true });
+  const form = box.querySelector('form.gsf');
+  is('the same markup', form.querySelectorAll('.gsf-row').length, DEF.fields.length);
+  is('but the button is not a submit button', form.querySelector('.gsf-btn').type, 'button');
+  const before = calls.length;
+  fill(form, { first_name: 'Pre', last_name: 'View', email: 'pre@example.com', program: 'Adult', consent: true });
+  await submit(form, window);
+  is('and submitting sends nothing', calls.length - before, 0);
 }
 
 console.log(failures.length

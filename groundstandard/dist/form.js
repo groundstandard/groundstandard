@@ -21,30 +21,65 @@
   var ANON = document.currentScript && document.currentScript.getAttribute('data-key');
   var REPORT = 'https://primary-production-aa130.up.railway.app/webhook/c7e4d2ca-duda-gs-getinfo';
 
+  // One stylesheet for every form on the page. Each rule reads its value from a
+  // CSS variable with today's look as the fallback, and the Design panel's
+  // choices become those variables on one form's root — so a form with nothing
+  // set is exactly the form we have always shipped, and two forms on one page
+  // can look different while sharing this sheet. Anything with no "today"
+  // equivalent (filled inputs, floating labels, a card, a hover) is a modifier
+  // class on the root and is inert until the class is there.
   var CSS = [
-    '.gsf{max-width:520px;font:15px/1.5 inherit}',
+    '.gsf{max-width:var(--gsf-mw,520px);font-family:var(--gsf-font,inherit);font-size:var(--gsf-fs,inherit);color:var(--gsf-text,inherit)}',
     '.gsf *{box-sizing:border-box}',
-    '.gsf-row{margin-bottom:14px}',
-    '.gsf-label{display:block;margin-bottom:6px;font-size:13px;font-weight:600;opacity:.85}',
+    '.gsf-row{margin-bottom:var(--gsf-gap,14px)}',
+    '.gsf-label{display:block;margin-bottom:6px;font-size:var(--gsf-lbl-fs,13px);font-weight:var(--gsf-lbl-fw,600);color:var(--gsf-lbl-c,inherit);opacity:.85}',
     '.gsf-req{opacity:.5;font-weight:400}',
-    '.gsf-input,.gsf-select,.gsf-textarea{width:100%;padding:11px 13px;border:1px solid rgba(128,128,128,.35);',
-    'border-radius:8px;font:inherit;background:transparent;color:inherit}',
-    '.gsf-input:focus,.gsf-select:focus,.gsf-textarea:focus{outline:2px solid currentColor;outline-offset:-1px}',
-    '.gsf-check{display:flex;gap:9px;align-items:flex-start;font-size:13px;line-height:1.45}',
-    '.gsf-check input{margin-top:3px;flex-shrink:0}',
-    '.gsf-btn{width:100%;padding:13px;border:0;border-radius:8px;font:600 15px/1 inherit;cursor:pointer;',
-    'background:currentColor;color:#fff;filter:none}',
+    '.gsf-input,.gsf-select,.gsf-textarea{width:100%;padding:var(--gsf-in-py,11px) var(--gsf-in-px,13px);border:var(--gsf-bw,1px) solid var(--gsf-in-bc,rgba(128,128,128,.35));',
+    'border-radius:var(--gsf-r,8px);font:inherit;background:var(--gsf-in-bg,transparent);color:var(--gsf-in-c,inherit);box-shadow:var(--gsf-in-sh,none);transition:var(--gsf-tr,none)}',
+    '.gsf-input:focus,.gsf-select:focus,.gsf-textarea:focus{outline:var(--gsf-ring,2px solid var(--gsf-accent,currentColor));outline-offset:-1px;box-shadow:var(--gsf-ring-sh,var(--gsf-in-sh,none))}',
+    '.gsf-check{display:flex;gap:9px;align-items:flex-start;font-size:var(--gsf-lbl-fs,13px);line-height:1.45}',
+    '.gsf-check input{margin-top:3px;flex-shrink:0;accent-color:var(--gsf-accent,auto)}',
+    // font-family and friends are longhands on purpose: `font:600 15px/1 inherit`
+    // is not valid CSS (inherit cannot sit inside a shorthand) and browsers
+    // dropped it, which left the button in the browser's own control font.
+    '.gsf-btn{display:var(--gsf-btn-d,inline-block);width:var(--gsf-btn-w,100%);margin:var(--gsf-btn-m,0);padding:var(--gsf-btn-py,13px) var(--gsf-btn-px,13px);',
+    'border:var(--gsf-btn-bw,0) solid var(--gsf-btn-bc,transparent);border-radius:var(--gsf-btn-r,var(--gsf-r,8px));font-family:inherit;font-size:var(--gsf-btn-fs,15px);font-weight:var(--gsf-btn-fw,600);line-height:1;',
+    'letter-spacing:var(--gsf-btn-ls,normal);text-transform:var(--gsf-btn-tt,none);cursor:pointer;background:var(--gsf-btn-bg,var(--gsf-accent,currentColor));color:var(--gsf-btn-c,#fff);box-shadow:var(--gsf-btn-sh,none);transition:var(--gsf-tr,none)}',
     '.gsf-btn[disabled]{opacity:.55;cursor:default}',
-    '.gsf-msg{margin-top:12px;padding:11px 13px;border-radius:8px;font-size:14px;display:none}',
-    '.gsf-msg.ok{display:block;background:rgba(46,125,83,.12);border:1px solid rgba(46,125,83,.4)}',
-    '.gsf-msg.bad{display:block;background:rgba(198,72,60,.12);border:1px solid rgba(198,72,60,.4)}',
+    '.gsf-msg{margin-top:12px;padding:11px 13px;border-radius:var(--gsf-r,8px);font-size:14px;display:none}',
+    '.gsf-msg.ok{display:block;background:var(--gsf-ok-bg,rgba(46,125,83,.12));border:1px solid var(--gsf-ok-bc,rgba(46,125,83,.4))}',
+    '.gsf-msg.bad{display:block;background:var(--gsf-bad-bg,rgba(198,72,60,.12));border:1px solid var(--gsf-bad-bc,rgba(198,72,60,.4))}',
     '.gsf-fine{margin-top:10px;font-size:12px;opacity:.6}',
     '.gsf-fine a{color:inherit}',
-    '.gsf-bone{background:currentColor;opacity:.08;border-radius:8px;animation:gsf-pulse 1.4s ease-in-out infinite}',
+    '.gsf-bone{background:var(--gsf-accent,currentColor);opacity:.08;border-radius:var(--gsf-r,8px);animation:gsf-pulse 1.4s ease-in-out infinite}',
     '.gsf-bone-label{width:90px;height:11px;margin-bottom:6px}',
     '.gsf-bone-field{width:100%;height:43px}',
     '.gsf-bone-btn{width:100%;height:45px}',
     '@keyframes gsf-pulse{0%,100%{opacity:.08}50%{opacity:.16}}',
+    // ── modifiers: nothing below applies until the class is on the root ──
+    '.gsf-card{background:var(--gsf-card-bg,transparent);border:var(--gsf-bw,1px) solid var(--gsf-card-bc,transparent);border-radius:var(--gsf-card-r,calc(var(--gsf-r,8px)*1.5));padding:var(--gsf-card-p,24px);box-shadow:var(--gsf-card-sh,none)}',
+    '.gsf-cols{display:flex;flex-wrap:wrap;column-gap:12px}',
+    '.gsf-cols .gsf-row,.gsf-cols .gsf-msg,.gsf-cols .gsf-fine{width:100%}',
+    '.gsf-cols .gsf-half{width:calc(50% - 6px)}',
+    '@media (max-width:480px){.gsf-cols .gsf-half{width:100%}}',
+    '.gsf-in-filled .gsf-input,.gsf-in-filled .gsf-select,.gsf-in-filled .gsf-textarea{border-color:transparent;background:var(--gsf-in-bg,rgba(128,128,128,.12))}',
+    '.gsf-in-underline .gsf-input,.gsf-in-underline .gsf-select,.gsf-in-underline .gsf-textarea{border-width:0 0 var(--gsf-bw,1px);border-radius:0;padding-left:0;padding-right:0;background:transparent}',
+    '.gsf-in-underline .gsf-input:focus,.gsf-in-underline .gsf-select:focus,.gsf-in-underline .gsf-textarea:focus{outline:0;box-shadow:0 1px 0 0 var(--gsf-accent,currentColor)}',
+    '.gsf-lbl-hide .gsf-label{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}',
+    '.gsf-lbl-float .gsf-row{position:relative}',
+    '.gsf-lbl-float .gsf-input~.gsf-label,.gsf-lbl-float .gsf-textarea~.gsf-label,.gsf-lbl-float .gsf-select~.gsf-label{position:absolute;left:var(--gsf-in-px,13px);top:var(--gsf-in-py,11px);margin:0;line-height:1.5;pointer-events:none;transform-origin:left top;transition:transform .15s}',
+    '.gsf-lbl-float .gsf-input:focus~.gsf-label,.gsf-lbl-float .gsf-input:not(:placeholder-shown)~.gsf-label,.gsf-lbl-float .gsf-textarea:focus~.gsf-label,.gsf-lbl-float .gsf-textarea:not(:placeholder-shown)~.gsf-label,.gsf-lbl-float .gsf-select~.gsf-label{transform:translateY(-55%) scale(.8)}',
+    '.gsf-lbl-float .gsf-input,.gsf-lbl-float .gsf-select,.gsf-lbl-float .gsf-textarea{padding-top:calc(var(--gsf-in-py,11px) + 9px);padding-bottom:calc(var(--gsf-in-py,11px) - 5px)}',
+    '.gsf-lbl-float ::placeholder{color:transparent}',
+    '.gsf-ph ::placeholder{color:var(--gsf-ph);opacity:1}',
+    '.gsf-ph .gsf-select:has(option[value=""]:checked){color:var(--gsf-ph)}',
+    '.gsf-grad .gsf-btn{background:linear-gradient(135deg,var(--gsf-btn-bg,var(--gsf-accent,currentColor)),var(--gsf-btn-bg2))}',
+    '.gsf-hv-color .gsf-btn:hover:not([disabled]){background:var(--gsf-btn-hbg)}',
+    '.gsf-hv-darken .gsf-btn:hover:not([disabled]){filter:brightness(.9)}',
+    '.gsf-hv-lift .gsf-btn:hover:not([disabled]){transform:translateY(-1px);box-shadow:0 6px 16px rgba(0,0,0,.18)}',
+    // A field under 16px makes iPhones zoom the page when tapped. Only a set
+    // size can cause that, so only a set size is guarded.
+    '@media (max-width:480px){.gsf-fs .gsf-input,.gsf-fs .gsf-select,.gsf-fs .gsf-textarea{font-size:max(16px,var(--gsf-fs))}}',
   ].join('');
 
   // Where the visitor came from. Captured on whatever page they land on and kept
@@ -170,11 +205,110 @@
     document.head.appendChild(s);
   }
 
+  // The Design panel's tokens, turned into the variables the sheet above reads.
+  // Only what is set is written; everything else falls back to today's look.
+  var PX = {
+    font_size: 'fs', label_size: 'lbl-fs', button_size: 'btn-fs', radius: 'r', button_radius: 'btn-r',
+    border_width: 'bw', gap: 'gap', max_width: 'mw', card_padding: 'card-p', button_spacing: 'btn-ls',
+  };
+  var COLOR = {
+    accent: 'accent', text: 'text', label_color: 'lbl-c', input_bg: 'in-bg', input_border: 'in-bc',
+    input_text: 'in-c', button_bg: 'btn-bg', button_text: 'btn-c', card_bg: 'card-bg', card_border: 'card-bc',
+  };
+  var WEIGHT = { label_weight: 'lbl-fw', button_weight: 'btn-fw' };
+  var SHADOW = {
+    sm: '0 1px 2px rgba(0,0,0,.08)',
+    md: '0 4px 12px rgba(0,0,0,.14)',
+    lg: '0 12px 32px rgba(0,0,0,.18)',
+  };
+  var HEX6 = /^#[0-9a-f]{6}$/i;
+
+  function themeVars(t) {
+    t = t || {};
+    var vars = [];
+    var cls = '';
+    var k;
+    function set(name, value) { vars.push('--gsf-' + name + ':' + value); }
+
+    for (k in PX) if (typeof t[k] === 'number') set(PX[k], t[k] + 'px');
+    for (k in COLOR) if (t[k]) set(COLOR[k], t[k]);
+    for (k in WEIGHT) if (t[k]) set(WEIGHT[k], t[k]);
+
+    if (t.font_family) set('font', '"' + String(t.font_family).replace(/"/g, '') + '",sans-serif');
+    if (typeof t.font_size === 'number') cls += ' gsf-fs';
+
+    // Heights are what people think in; padding is what the box is drawn with.
+    if (typeof t.input_height === 'number') set('in-py', Math.max(4, Math.round((t.input_height - 23) / 2)) + 'px');
+    if (typeof t.button_height === 'number') set('btn-py', Math.max(6, Math.round((t.button_height - 15) / 2)) + 'px');
+
+    if (t.button_case === 'upper') set('btn-tt', 'uppercase');
+    if (t.button_border) { set('btn-bw', (t.border_width || 1) + 'px'); set('btn-bc', t.button_border); }
+    if (SHADOW[t.input_shadow]) set('in-sh', SHADOW[t.input_shadow]);
+    if (SHADOW[t.button_shadow]) set('btn-sh', SHADOW[t.button_shadow]);
+    if (SHADOW[t.card_shadow]) set('card-sh', SHADOW[t.card_shadow]);
+    if (t.button_gradient) { set('btn-bg2', t.button_gradient); cls += ' gsf-grad'; }
+    if (t.button_hover_bg) { set('btn-hbg', t.button_hover_bg); cls += ' gsf-hv-color'; }
+    if (t.placeholder) { set('ph', t.placeholder); cls += ' gsf-ph'; }
+    if (HEX6.test(t.ok_color || '')) { set('ok-bg', t.ok_color + '1f'); set('ok-bc', t.ok_color + '66'); }
+    if (HEX6.test(t.bad_color || '')) { set('bad-bg', t.bad_color + '1f'); set('bad-bc', t.bad_color + '66'); }
+
+    if (t.focus_style === 'glow') {
+      set('ring', 'none');
+      set('ring-sh', '0 0 0 3px ' + (HEX6.test(t.accent || '') ? t.accent + '40' : 'color-mix(in srgb,currentColor 25%,transparent)'));
+    }
+    if (t.button_width === 'auto') {
+      set('btn-w', 'auto'); set('btn-d', 'block'); set('btn-px', '28px');
+      if (t.button_align === 'center') set('btn-m', '0 auto');
+      if (t.button_align === 'right') set('btn-m', '0 0 0 auto');
+    }
+    if (t.transitions) set('tr', 'border-color .15s,box-shadow .15s,background-color .15s,transform .15s,filter .15s');
+
+    if (t.input_style === 'filled' || t.input_style === 'underline') cls += ' gsf-in-' + t.input_style;
+    if (t.label_position === 'placeholder') cls += ' gsf-lbl-hide';
+    if (t.label_position === 'floating') cls += ' gsf-lbl-float';
+    if (t.button_hover === 'darken' || t.button_hover === 'lift') cls += ' gsf-hv-' + t.button_hover;
+    if (t.card) cls += ' gsf-card';
+
+    return { style: vars.join(';'), cls: cls };
+  }
+
+  // A Google Font, when one was chosen: one stylesheet link per family, once
+  // per page. The default — the site's own font — adds nothing to the page.
+  function fontOnce(t) {
+    if (!t || !t.font_family || !t.font_google) return;
+    var family = String(t.font_family);
+    var id = 'gsf-font-' + family.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    if (document.getElementById(id)) return;
+    try {
+      if (!document.getElementById('gsf-font-pre')) {
+        document.head.appendChild(el('link', { id: 'gsf-font-pre', rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: 'anonymous' }));
+      }
+      document.head.appendChild(el('link', {
+        id: id, rel: 'stylesheet',
+        href: 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(family).replace(/%20/g, '+') + ':wght@400;500;600;700&display=swap',
+      }));
+    } catch (err) { /* the form still renders, in the site's font */ }
+  }
+
+  // Custom CSS from the Design panel, in a style element of its own per form,
+  // wrapped in the form's own selector so it can only reach that form. Updated
+  // in place, so the builder's preview follows every keystroke.
+  function customCss(slug, css) {
+    var key = slug || 'new';
+    var id = 'gsf-css-' + key;
+    var node = document.getElementById(id);
+    if (!css) { if (node) node.parentNode.removeChild(node); return; }
+    var text = '.gsf[data-gsf="' + key + '"]{' + css + '}';
+    if (!node) { node = el('style', { id: id }); document.head.appendChild(node); }
+    if (node.textContent !== text) node.textContent = text;
+  }
+
   // Build one field. Everything is a plain input unless the definition says
   // otherwise — a form that renders slightly plain is better than one that
   // throws because a type was misspelt.
-  function field(f) {
+  function field(f, theme) {
     var id = 'gsf-' + f.name;
+    theme = theme || {};
 
     // A hidden field is a fixed value the visitor never sees and cannot change:
     // which gym, which campaign, a tag GoHighLevel routes on. It goes in the
@@ -184,7 +318,10 @@
       return el('input', { type: 'hidden', name: f.name, id: id, value: f.value || '' });
     }
 
-    var row = el('div', { class: 'gsf-row' });
+    // Two half-width fields share a row: first name beside last name. A tickbox
+    // is never half — its sentence needs the width.
+    var half = f.width === 'half' && f.type !== 'checkbox';
+    var row = el('div', { class: half ? 'gsf-row gsf-half' : 'gsf-row' });
 
     if (f.type === 'checkbox') {
       var wrap = el('label', { class: 'gsf-check' });
@@ -194,15 +331,24 @@
       return row;
     }
 
+    // Where the label sits is a design choice. Above is the default. "Placeholder"
+    // keeps the label for screen readers and puts its words in the box instead.
+    // "Floating" puts it inside the box, after the input in the DOM, so the
+    // sheet can lift it when the input has focus or a value.
+    var labels = theme.label_position || 'above';
     var label = el('label', { class: 'gsf-label', for: id });
     label.appendChild(document.createTextNode(f.label));
     if (!f.required) label.appendChild(el('span', { class: 'gsf-req' }, '  (optional)'));
-    row.appendChild(label);
+    if (labels !== 'floating') row.appendChild(label);
+
+    var ph = f.placeholder || '';
+    if (labels === 'placeholder' && !ph) ph = f.label + (f.required ? '' : ' (optional)');
+    if (labels === 'floating' && !ph) ph = ' ';
 
     var input;
     if (f.type === 'select') {
       input = el('select', { class: 'gsf-select', name: f.name, id: id });
-      input.appendChild(el('option', { value: '' }, f.placeholder || 'Choose one'));
+      input.appendChild(el('option', { value: '' }, f.placeholder || (labels === 'placeholder' ? f.label : 'Choose one')));
       (f.options || []).forEach(function (o) {
         // "Jiu-Jitsu / BJJ = jiu-jitsu" — what the visitor reads and what the CRM
         // receives are not always the same thing. Killer B tags on the value, so
@@ -213,25 +359,45 @@
         input.appendChild(el('option', { value: value }, label));
       });
     } else if (f.type === 'textarea') {
-      input = el('textarea', { class: 'gsf-textarea', name: f.name, id: id, rows: '4', placeholder: f.placeholder || '' });
+      var rows = ({ short: '3', tall: '7' })[theme.textarea_size] || '4';
+      input = el('textarea', { class: 'gsf-textarea', name: f.name, id: id, rows: rows, placeholder: ph });
     } else {
       input = el('input', {
         class: 'gsf-input', name: f.name, id: id,
         type: f.type === 'phone' ? 'tel' : (f.type || 'text'),
-        placeholder: f.placeholder || '',
+        placeholder: ph,
         autocomplete: ({ first_name: 'given-name', last_name: 'family-name', email: 'email', phone: 'tel' })[f.name] || 'on',
       });
     }
     if (f.required) input.setAttribute('required', 'required');
     row.appendChild(input);
+    if (labels === 'floating') row.appendChild(label);
     return row;
   }
 
-  function render(mount, def) {
+  function render(mount, def, opts) {
+    opts = opts || {};
     styleOnce();
-    var form = el('form', { class: 'gsf', novalidate: 'novalidate' });
 
-    (def.fields || []).forEach(function (f) { form.appendChild(field(f)); });
+    // The Design panel's choices, as variables on this one form. A definition
+    // remembered from before the panel existed has no theme at all, which is
+    // the same as an empty one.
+    var theme = def.theme || {};
+    var look = themeVars(theme);
+    fontOnce(theme);
+    customCss(def.slug, theme.css);
+
+    var cols = (def.fields || []).some(function (f) {
+      return f.width === 'half' && f.type !== 'checkbox' && f.type !== 'hidden';
+    });
+    var form = el('form', {
+      class: 'gsf' + look.cls + (cols ? ' gsf-cols' : ''),
+      'data-gsf': def.slug || 'new',
+      style: look.style || null,
+      novalidate: 'novalidate',
+    });
+
+    (def.fields || []).forEach(function (f) { form.appendChild(field(f, theme)); });
 
     // A field no person can see and every crude bot fills in. Cheaper than a
     // captcha, invisible to a real visitor, and it keeps junk out of the CRM
@@ -243,7 +409,9 @@
     trap.style.cssText = 'position:absolute;left:-9999px;width:1px;height:1px;opacity:0';
     form.appendChild(trap);
 
-    var btn = el('button', { class: 'gsf-btn', type: 'submit' }, def.submit_label || 'Send');
+    // In the builder's preview the button is a button and nothing more, so what
+    // is on screen is the real form and still cannot send anything.
+    var btn = el('button', { class: 'gsf-btn', type: opts.preview ? 'button' : 'submit' }, def.submit_label || 'Send');
     form.appendChild(btn);
 
     var msg = el('div', { class: 'gsf-msg' });
@@ -261,7 +429,7 @@
 
     form.addEventListener('submit', function (e) {
       e.preventDefault();
-      submit(form, def, btn, msg);
+      if (!opts.preview) submit(form, def, btn, msg);
     });
 
     mount.innerHTML = '';
@@ -495,6 +663,10 @@
         });
     });
   }
+
+  // The builder's preview draws with this same function, so the form on that
+  // screen and the form on the client's site are one piece of code.
+  window.GSF = { render: render, CSS: CSS };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
