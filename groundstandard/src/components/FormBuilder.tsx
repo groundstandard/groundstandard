@@ -784,7 +784,10 @@ function useEmbed() {
     if (!tag) {
       tag = document.createElement('script');
       tag.id = 'gsf-embed';
-      tag.src = '/form.js';
+      // Always the freshest copy in the builder: form.js is cached for five
+      // minutes on client sites (deliberately), but a preview showing last
+      // deploy's script would be lying about what a save is going to look like.
+      tag.src = '/form.js?v=' + Date.now();
       document.head.appendChild(tag);
     }
     const done = () => setReady(!!window.GSF);
