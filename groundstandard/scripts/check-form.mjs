@@ -629,6 +629,65 @@ console.log("\nthe builder's preview is the same form, and cannot send:");
   is('and submitting sends nothing', calls.length - before, 0);
 }
 
+console.log('\nwhere they go afterwards — rules:');
+{
+  const ruled = {
+    ...DEF,
+    redirect_adult: null, redirect_youth: null,
+    redirect_rules: [
+      { field: 'program', value: 'Youth', url: 'https://example.com/kids' },
+      { field: 'interest', value: 'bjj', url: 'https://example.com/bjj' },
+    ],
+    redirect_default: 'https://example.com/thanks',
+    fields: [...DEF.fields, {
+      name: 'interest', label: 'What are you interested in?', type: 'select', required: false,
+      options: ['Jiu-Jitsu / BJJ = bjj', 'Kickboxing'],
+    }],
+  };
+  const person = { first_name: 'Ana', last_name: 'Reyes', email: 'ana@example.com', consent: true };
+
+  const kids = await mount({ definition: ruled });
+  fill(kids.doc.querySelector('form.gsf'), { ...person, program: 'Youth', interest: 'bjj' });
+  await submit(kids.doc.querySelector('form.gsf'), kids.window);
+  is('the first matching rule wins', kids.nav.to, 'https://example.com/kids');
+
+  const bjj = await mount({ definition: ruled });
+  fill(bjj.doc.querySelector('form.gsf'), { ...person, program: 'Adult', interest: 'bjj' });
+  await submit(bjj.doc.querySelector('form.gsf'), bjj.window);
+  is('a later rule catches what the first let through', bjj.nav.to, 'https://example.com/bjj');
+  ok('  and it matched on the option value, not its label', 'bjj');
+
+  const rest = await mount({ definition: ruled });
+  fill(rest.doc.querySelector('form.gsf'), { ...person, program: 'Adult', interest: 'Kickboxing' });
+  await submit(rest.doc.querySelector('form.gsf'), rest.window);
+  is('everyone else goes to the else address', rest.nav.to, 'https://example.com/thanks');
+
+  const loose = await mount({ definition: { ...ruled, redirect_rules: [{ field: 'program', value: ' youth ', url: 'https://example.com/kids' }] } });
+  fill(loose.doc.querySelector('form.gsf'), { ...person, program: 'Youth', interest: 'Kickboxing' });
+  await submit(loose.doc.querySelector('form.gsf'), loose.window);
+  is('case and spaces do not matter', loose.nav.to, 'https://example.com/kids');
+
+  const stay = await mount({ definition: { ...ruled, redirect_default: null } });
+  fill(stay.doc.querySelector('form.gsf'), { ...person, program: 'Adult', interest: 'Kickboxing' });
+  await submit(stay.doc.querySelector('form.gsf'), stay.window);
+  stay.nav.to
+    ? bad('no else address means they stay on the page', 'went to ' + stay.nav.to)
+    : ok('no else address means they stay on the page');
+  stay.doc.querySelector('.gsf-msg').className.includes('ok')
+    ? ok('  and read the thank-you message') : bad('  and read the thank-you message', stay.doc.querySelector('.gsf-msg').className);
+
+  const off = await mount({ definition: { ...ruled, redirect_enabled: false } });
+  fill(off.doc.querySelector('form.gsf'), { ...person, program: 'Youth', interest: 'bjj' });
+  await submit(off.doc.querySelector('form.gsf'), off.window);
+  off.nav.to ? bad('rules do nothing while the switch is off', 'went to ' + off.nav.to) : ok('rules do nothing while the switch is off');
+
+  // A form remembered from before rules existed has only the old pair.
+  const legacy = await mount();
+  fill(legacy.doc.querySelector('form.gsf'), { ...person, program: 'Youth' });
+  await submit(legacy.doc.querySelector('form.gsf'), legacy.window);
+  is('the old adult/youth pair still decides when no rules are set', legacy.nav.to, 'https://example.com/youth');
+}
+
 console.log(failures.length
   ? `\n${failures.length} failed: ${failures.join(', ')}`
   : '\nall checks passed');

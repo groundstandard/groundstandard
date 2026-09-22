@@ -191,6 +191,12 @@
     } catch (err) { /* nothing lost */ }
   }
 
+  // An answer and a rule's value are the same thing regardless of case and
+  // stray spaces — "Youth " typed into the builder still matches "youth".
+  function same(a, b) {
+    return String(a == null ? '' : a).trim().toLowerCase() === String(b == null ? '' : b).trim().toLowerCase();
+  }
+
   function el(tag, attrs, text) {
     var n = document.createElement(tag);
     for (var k in attrs) if (attrs[k] != null) n.setAttribute(k, attrs[k]);
@@ -559,10 +565,24 @@
         user_data: person,
       });
 
-      var program = (data.program || '').toLowerCase();
-      var to = def.redirect_enabled
-        ? (program.indexOf('youth') === 0 || program.indexOf('kid') === 0 ? def.redirect_youth : def.redirect_adult)
-        : null;
+      // Where they go next. The rules are read top to bottom against what they
+      // answered — "if program is Youth, go here" — and the first match wins;
+      // redirect_default is everyone else. A definition remembered from before
+      // rules existed has only the old adult/youth pair, so that pair still
+      // decides when nothing newer is set.
+      var to = null;
+      if (def.redirect_enabled) {
+        var rules = def.redirect_rules || [];
+        for (var ri = 0; ri < rules.length; ri += 1) {
+          var rule = rules[ri] || {};
+          if (rule.url && rule.field && same(data[rule.field], rule.value)) { to = rule.url; break; }
+        }
+        if (!to) to = def.redirect_default || null;
+        if (!to && !rules.length && !def.redirect_default) {
+          var program = (data.program || '').toLowerCase();
+          to = program.indexOf('youth') === 0 || program.indexOf('kid') === 0 ? def.redirect_youth : def.redirect_adult;
+        }
+      }
 
       if (to) { location.href = to; return; }
 

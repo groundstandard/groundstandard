@@ -38,6 +38,9 @@ type FormField = {
   width?: 'full' | 'half'; // two half fields share a row; absent means full
 };
 
+// "If this field is this answer, go here." Read top to bottom; first match wins.
+type RedirectRule = { field: string; value: string; url: string };
+
 type FormDef = {
   id?: string;
   slug: string;
@@ -46,8 +49,10 @@ type FormDef = {
   ghl_webhook_url: string | null;
   report_enabled: boolean;
   redirect_enabled: boolean;
-  redirect_adult: string | null;
+  redirect_adult: string | null;   // before rules existed; kept, still carried
   redirect_youth: string | null;
+  redirect_rules: RedirectRule[];
+  redirect_default: string | null; // everyone a rule did not catch
   fields: FormField[];
   submit_label: string;
   success_message: string;
@@ -80,6 +85,8 @@ const blank = (): FormDef => ({
   redirect_enabled: false,
   redirect_adult: null,
   redirect_youth: null,
+  redirect_rules: [],
+  redirect_default: null,
   fields: STARTER.map(f => ({ ...f })),
   submit_label: 'Send',
   success_message: 'Thank you. We will be in touch shortly.',
@@ -131,7 +138,7 @@ export default function FormBuilder({ onBackToLaunch }: { onBackToLaunch?: () =>
   const open = (f: FormDef | null) => {
     setError(null);
     // A row saved before the Design panel existed has no theme; same as empty.
-    const next = f ? { ...f, theme: f.theme ?? {} } : null;
+    const next = f ? { ...f, theme: f.theme ?? {}, redirect_rules: f.redirect_rules ?? [] } : null;
     setEditing(next);
     setSaved(next ? JSON.stringify(next) : '');
   };
@@ -370,11 +377,14 @@ export default function FormBuilder({ onBackToLaunch }: { onBackToLaunch?: () =>
                   />
 
                   {editing.redirect_enabled && (
-                    <div className="grid gap-4 rounded-xl border border-slate-200 bg-slate-50/70 p-4 sm:grid-cols-2">
-                      <TextField label="Adult enquiry goes to" value={editing.redirect_adult ?? ''}
-                        onChange={(v) => patch({ redirect_adult: v || null })} placeholder="https://…" mono />
-                      <TextField label="Youth enquiry goes to" value={editing.redirect_youth ?? ''}
-                        onChange={(v) => patch({ redirect_youth: v || null })} placeholder="https://…" mono />
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                      <RedirectRules
+                        fields={editing.fields}
+                        rules={editing.redirect_rules}
+                        fallback={editing.redirect_default ?? ''}
+                        onRules={(rules) => patch({ redirect_rules: rules })}
+                        onFallback={(v) => patch({ redirect_default: v || null })}
+                      />
                     </div>
                   )}
 
@@ -945,6 +955,115 @@ function Embed({ def }: { def: FormDef }) {
           readable — copying takes the whole thing.
         </p>
       </div>
+    </div>
+  );
+}
+
+/* ── where they go afterwards ──────────────────────────────────────────── */
+
+// "Jiu-Jitsu / BJJ = jiu-jitsu": what the visitor reads and what is sent.
+const optionParts = (o: string) => {
+  const cut = o.indexOf('=');
+  return cut === -1
+    ? { label: o.trim(), value: o.trim() }
+    : { label: o.slice(0, cut).trim(), value: o.slice(cut + 1).trim() };
+};
+
+const RULE_SELECT = 'rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none transition focus:border-blue-400';
+const RULE_URL = 'min-w-[150px] flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-mono text-[11px] text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-blue-400';
+
+function RedirectRules({ fields, rules, fallback, onRules, onFallback }: {
+  fields: FormField[];
+  rules: RedirectRule[];
+  fallback: string;
+  onRules: (rules: RedirectRule[]) => void;
+  onFallback: (url: string) => void;
+}) {
+  const choices = fields.filter(f => f.type === 'select' && (f.options?.length ?? 0) > 0);
+  const setRule = (i: number, p: Partial<RedirectRule>) =>
+    onRules(rules.map((r, n) => (n === i ? { ...r, ...p } : r)));
+  const firstOption = (f?: FormField) => (f?.options?.length ? optionParts(f.options[0]).value : '');
+  const add = () => onRules([...rules, { field: choices[0]?.name ?? '', value: firstOption(choices[0]), url: '' }]);
+
+  return (
+    <div className="space-y-3">
+      {rules.map((r, i) => {
+        const f = choices.find(c => c.name === r.field);
+        const options = (f?.options ?? []).map(optionParts);
+        const gone = !f || !options.some(o => o.value === r.value);
+        return (
+          <div key={i}>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="w-12 flex-shrink-0 text-xs font-semibold text-slate-500">{i === 0 ? 'If' : 'Else if'}</span>
+              <select
+                value={f?.name ?? ''}
+                onChange={(e) => {
+                  const nf = choices.find(c => c.name === e.target.value);
+                  setRule(i, { field: e.target.value, value: firstOption(nf) });
+                }}
+                className={RULE_SELECT}
+              >
+                {!f && <option value="">{r.field || 'a removed field'}</option>}
+                {choices.map(c => <option key={c.name} value={c.name}>{c.label || c.name}</option>)}
+              </select>
+              <span className="text-xs text-slate-400">is</span>
+              <select value={r.value} onChange={(e) => setRule(i, { value: e.target.value })} className={RULE_SELECT}>
+                {gone && <option value={r.value}>{r.value || '—'}</option>}
+                {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              <span className="text-xs text-slate-400">go to</span>
+              <input
+                value={r.url}
+                onChange={(e) => setRule(i, { url: e.target.value })}
+                placeholder="/thank-you/…"
+                className={RULE_URL}
+              />
+              <button
+                onClick={() => onRules(rules.filter((_, n) => n !== i))}
+                title="Remove this rule"
+                className="rounded-md p-1.5 text-slate-300 transition hover:bg-red-50 hover:text-red-600"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            {gone && (
+              <p className="mt-1 pl-14 text-[11px] text-amber-600">
+                {!f ? 'That field is no longer on the form, so this rule never matches.' : 'That option is no longer on the field, so this rule never matches.'}
+              </p>
+            )}
+          </div>
+        );
+      })}
+
+      {choices.length ? (
+        <button
+          onClick={add}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-500 transition hover:border-blue-300 hover:bg-blue-50/50 hover:text-blue-600"
+        >
+          <Plus className="h-3.5 w-3.5" /> {rules.length ? 'Else if…' : 'Send some answers to a different page'}
+        </button>
+      ) : (
+        <p className="text-[11px] leading-relaxed text-slate-500">
+          Add a <span className="font-semibold">Choice</span> field to send people to different pages by their answer.
+        </p>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3">
+        <span className="w-12 flex-shrink-0 text-xs font-semibold text-slate-500">{rules.length ? 'Else' : 'Go to'}</span>
+        <input
+          value={fallback}
+          onChange={(e) => onFallback(e.target.value)}
+          placeholder="/thank-you/general"
+          className={RULE_URL}
+        />
+      </div>
+
+      <p className="text-[11px] leading-relaxed text-slate-500">
+        Rules are checked top to bottom and the first match wins; <span className="font-semibold">{rules.length ? 'Else' : 'Go to'}</span> is
+        everyone the rules did not catch. Use a full address (<code className="rounded bg-white px-1 font-mono">https://killerbhq.com/thanks</code>)
+        or a path on the same site (<code className="rounded bg-white px-1 font-mono">/thank-you/bjj</code>). Leave an address empty and those
+        visitors stay on the page and read the thank-you message instead.
+      </p>
     </div>
   );
 }
