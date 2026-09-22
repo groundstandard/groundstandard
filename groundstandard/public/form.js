@@ -19,8 +19,8 @@
 
   var API = 'https://qkwiauivaerrrbemdlyj.supabase.co';
   var ANON = document.currentScript && document.currentScript.getAttribute('data-key');
-  // Our copy of every submission. n8n writes it into form_submissions, which is
-  // what the Report tab in the builder and the Leads screen both read.
+  // Our copy of every submission. n8n writes the body into form_submissions_v2,
+  // which is what the Report tab in the builder reads.
   var REPORT = 'https://primary-production-aa130.up.railway.app/webhook/gsformbuilder/getinfodataoftheform';
 
   // One stylesheet for every form on the page. Each rule reads its value from a

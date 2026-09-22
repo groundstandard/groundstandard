@@ -1,12 +1,12 @@
 // FormReport — what came in through a form, inside the Custom Form Builder.
 //
 // Every submission is posted to our reporting webhook as well as to the CRM,
-// and that copy lands in form_submissions (the same rows the Leads screen
-// shows). Here they are cut two ways: inside a form, only that form's leads;
-// on the list, every site at once. A form is matched by the name the embed
-// sends with each lead — form_name is what the CRM workflows read too, so it
-// is the one field guaranteed to be there — and older rows with no name fall
-// back to the site they came from.
+// and n8n writes that copy into form_submissions_v2 — the body as it arrived,
+// with the typed columns filled in by a trigger (see the migration). Here the
+// rows are cut two ways: inside a form, only that form's leads; on the list,
+// every site at once. A row is tied to its form by id, then by slug, then by
+// the name the embed sends, and a row with none of those falls back to the site
+// it came from. Test leads never arrive here, and are hidden if one does.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Download, Globe, RefreshCw, Search } from 'lucide-react';
@@ -14,21 +14,28 @@ import { supabase } from '../lib/supabase';
 
 export type SubmissionRow = {
   id: number;
+  received_at: string;
+  submitted_at: string | null;
+  form_id: string | null;
+  form_slug: string | null;
+  form_name: string | null;
+  name: string | null;
   first_name: string | null;
   last_name: string | null;
   email: string | null;
   phone: string | null;
-  program: string | null;
-  consent: boolean | null;
+  answers: Record<string, unknown> | null;
   source_url: string | null;
   source_hostname: string | null;
   source_pathname: string | null;
   source_referrer: string | null;
-  form_name: string | null;
-  submitted_at: string | null;
+  utm_source: string | null;
+  utm_medium: string | null;
+  utm_campaign: string | null;
+  is_test: boolean;
 };
 
-type FormLike = { name: string; slug: string; site_hostname: string | null };
+type FormLike = { id?: string; name: string; slug: string; site_hostname: string | null };
 
 const norm = (s: string | null | undefined) => (s ?? '').trim().toLowerCase();
 const bareHost = (s: string | null | undefined) =>
@@ -40,14 +47,16 @@ export const siteOf = (r: SubmissionRow) => {
 };
 
 export const matchesForm = (r: SubmissionRow, form: FormLike) => {
-  const fn = norm(r.form_name);
-  if (fn) return fn === norm(form.name) || fn === norm(form.slug);
+  if (r.form_id && form.id) return r.form_id === form.id;
+  if (r.form_slug) return norm(r.form_slug) === norm(form.slug);
+  if (r.form_name) return norm(r.form_name) === norm(form.name);
   const site = bareHost(form.site_hostname);
   return !!site && siteOf(r) === site;
 };
 
 // Same cadence as the Leads screen: poll, and re-pull when the tab comes back.
 const POLL_MS = 30000;
+const MOST = 5000;
 
 export function useSubmissions() {
   const [rows, setRows] = useState<SubmissionRow[] | null>(null);
@@ -55,12 +64,17 @@ export function useSubmissions() {
   const [at, setAt] = useState<Date | null>(null);
 
   const load = useCallback(async () => {
-    const { data, error: err } = await supabase.rpc('rpc_form_submissions_list');
-    if (err) { setError(err.message); if (rows === null) setRows([]); return; }
-    setRows(Array.isArray(data) ? (data as SubmissionRow[]) : []);
+    const { data, error: err } = await supabase
+      .from('form_submissions_v2')
+      .select('*')
+      .eq('is_test', false)
+      .order('submitted_at', { ascending: false })
+      .limit(MOST);
+    if (err) { setError(err.message); setRows(cur => cur ?? []); return; }
+    setRows((data ?? []) as SubmissionRow[]);
     setError(null);
     setAt(new Date());
-  }, [rows]);
+  }, []);
 
   useEffect(() => {
     void load();
@@ -68,8 +82,7 @@ export function useSubmissions() {
     const id = window.setInterval(tick, POLL_MS);
     window.addEventListener('focus', tick);
     return () => { window.clearInterval(id); window.removeEventListener('focus', tick); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [load]);
 
   return { rows, error, at, reload: load };
 }
@@ -106,6 +119,18 @@ const newest = (rows: SubmissionRow[]) =>
 // outage: submissions still happening somewhere, nothing arriving here.
 const STALE_DAYS = 14;
 
+// The answers worth a glance in a row: everything the visitor chose or typed
+// that is not already its own column.
+const PERSON = new Set(['first_name', 'last_name', 'name', 'email', 'phone']);
+const answerLine = (r: SubmissionRow) =>
+  Object.entries(r.answers ?? {})
+    .filter(([k, v]) => !PERSON.has(k) && v !== '' && v !== null && v !== undefined && v !== false)
+    .map(([k, v]) => `${k}: ${v === true ? 'yes' : String(v)}`)
+    .join(' · ');
+
+const personName = (r: SubmissionRow) =>
+  r.name || [r.first_name, r.last_name].filter(Boolean).join(' ') || '—';
+
 /* ── one form ─────────────────────────────────────────────────────────── */
 
 export function FormReport({ form, all, error, at, onReload }: {
@@ -138,8 +163,8 @@ export function FormReport({ form, all, error, at, onReload }: {
         file={`${form.slug || 'form'}-leads`}
         empty={
           <>
-            Nothing yet for this form. A lead appears here when a visitor submits it on the site —
-            matched by the form's name, <span className="font-mono text-slate-600">{form.name || form.slug}</span>.
+            Nothing yet for this form. A lead appears here when a visitor submits it on the site,
+            tied to <span className="font-mono text-slate-600">{form.slug || form.name}</span>.
           </>
         }
       />
@@ -161,6 +186,11 @@ export function SitesReport({ all, error, at, onReload, forms }: {
   const sites = useMemo(() => countBy(rows, siteOf), [rows]);
   const shown = useMemo(() => (site ? rows.filter(r => siteOf(r) === site) : rows), [rows, site]);
 
+  const formLabel = (r: SubmissionRow) => {
+    const f = forms.find(x => matchesForm(r, x));
+    return f?.name || r.form_name || r.form_slug || null;
+  };
+
   return (
     <div className="space-y-5">
       <Stats rows={shown} sites={site ? [] : sites} />
@@ -173,8 +203,7 @@ export function SitesReport({ all, error, at, onReload, forms }: {
           <div className="divide-y divide-slate-100">
             {sites.map(({ key, rows: sr }) => {
               const last = newest(sr);
-              const names = Array.from(new Set(sr.map(r => r.form_name).filter(Boolean))) as string[];
-              const known = names.map(n => forms.find(f => norm(f.name) === norm(n) || norm(f.slug) === norm(n))?.name ?? n);
+              const names = Array.from(new Set(sr.map(formLabel).filter(Boolean))) as string[];
               const on = site === key;
               return (
                 <button
@@ -187,7 +216,7 @@ export function SitesReport({ all, error, at, onReload, forms }: {
                   <span className="flex items-center gap-2 truncate text-sm font-semibold text-slate-900">
                     <Globe className="h-3.5 w-3.5 flex-shrink-0 text-slate-400" />{key}
                   </span>
-                  <span className="truncate text-xs text-slate-500">{known.join(' · ') || '—'}</span>
+                  <span className="truncate text-xs text-slate-500">{names.join(' · ') || '—'}</span>
                   <span className="text-xs tabular-nums text-slate-700">{sr.length.toLocaleString()}</span>
                   <span className="text-xs tabular-nums text-slate-500">{sr.filter(r => withinDays(r.submitted_at, 7)).length}</span>
                   <span className={`text-xs ${last && sr.length > 2 && !withinDays(last, STALE_DAYS) ? 'font-medium text-amber-600' : 'text-slate-500'}`}>
@@ -213,6 +242,7 @@ export function SitesReport({ all, error, at, onReload, forms }: {
         at={at}
         onReload={onReload}
         file={site ? `${site}-leads` : 'all-leads'}
+        formLabel={formLabel}
         empty={<>No submissions have come in yet. They appear here the moment a visitor submits any of these forms.</>}
       />
     </div>
@@ -275,7 +305,7 @@ function Notice({ tone, children }: { tone: 'warn'; children: React.ReactNode })
   );
 }
 
-function Table({ rows, loading, error, at, onReload, file, empty }: {
+function Table({ rows, loading, error, at, onReload, file, empty, formLabel }: {
   rows: SubmissionRow[];
   loading: boolean;
   error: string | null;
@@ -283,6 +313,7 @@ function Table({ rows, loading, error, at, onReload, file, empty }: {
   onReload: () => void;
   file: string;
   empty: React.ReactNode;
+  formLabel?: (r: SubmissionRow) => string | null;
 }) {
   const [q, setQ] = useState('');
   const needle = q.trim().toLowerCase();
@@ -290,14 +321,14 @@ function Table({ rows, loading, error, at, onReload, file, empty }: {
     const sorted = [...rows].sort((a, b) => (b.submitted_at ?? '').localeCompare(a.submitted_at ?? ''));
     if (!needle) return sorted;
     return sorted.filter(r =>
-      [r.first_name, r.last_name, r.email, r.phone, r.program, r.source_pathname, r.source_url, r.form_name]
+      [personName(r), r.email, r.phone, answerLine(r), r.source_pathname, r.source_url, r.form_name, r.form_slug, r.utm_source, r.utm_campaign]
         .filter(Boolean).join(' ').toLowerCase().includes(needle));
   }, [rows, needle]);
 
   const download = () => {
-    const head = ['submitted_at', 'first_name', 'last_name', 'email', 'phone', 'program', 'form_name', 'source_url'];
-    const cell = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const csv = [head.join(','), ...shown.map(r => head.map(h => cell((r as unknown as Record<string, unknown>)[h])).join(','))].join('\n');
+    const head = ['submitted_at', 'form_slug', 'form_name', 'name', 'email', 'phone', 'answers', 'source_url', 'utm_source', 'utm_medium', 'utm_campaign'];
+    const cell = (v: unknown) => `"${(typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v ?? '')).replace(/"/g, '""')}"`;
+    const csv = [head.join(','), ...shown.map(r => head.map(h => cell(h === 'name' ? personName(r) : (r as unknown as Record<string, unknown>)[h])).join(','))].join('\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
     a.download = `${file}.csv`;
@@ -313,7 +344,7 @@ function Table({ rows, loading, error, at, onReload, file, empty }: {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search name, email, phone, programme…"
+            placeholder="Search name, email, phone, any answer…"
             className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-3 text-xs text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-blue-400"
           />
         </div>
@@ -349,7 +380,8 @@ function Table({ rows, loading, error, at, onReload, file, empty }: {
                 <th className="px-3 py-2.5">Name</th>
                 <th className="px-3 py-2.5">Email</th>
                 <th className="px-3 py-2.5">Phone</th>
-                <th className="px-3 py-2.5">Programme</th>
+                <th className="px-3 py-2.5">Answers</th>
+                {formLabel && <th className="px-3 py-2.5">Form</th>}
                 <th className="px-3 py-2.5">Page</th>
               </tr>
             </thead>
@@ -357,11 +389,12 @@ function Table({ rows, loading, error, at, onReload, file, empty }: {
               {shown.map(r => (
                 <tr key={r.id} className="hover:bg-slate-50">
                   <td className="whitespace-nowrap px-5 py-2.5 text-slate-500" title={r.submitted_at ?? ''}>{when(r.submitted_at)}</td>
-                  <td className="whitespace-nowrap px-3 py-2.5 font-medium text-slate-900">{[r.first_name, r.last_name].filter(Boolean).join(' ') || '—'}</td>
+                  <td className="whitespace-nowrap px-3 py-2.5 font-medium text-slate-900">{personName(r)}</td>
                   <td className="px-3 py-2.5 text-slate-600">{r.email ? <a href={`mailto:${r.email}`} className="hover:underline">{r.email}</a> : '—'}</td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">{r.phone ? <a href={`tel:${r.phone}`} className="hover:underline">{r.phone}</a> : '—'}</td>
-                  <td className="px-3 py-2.5 text-slate-600">{r.program || '—'}</td>
-                  <td className="max-w-[220px] truncate px-3 py-2.5 font-mono text-[11px] text-slate-400" title={r.source_url ?? ''}>
+                  <td className="max-w-[280px] truncate px-3 py-2.5 text-slate-600" title={answerLine(r)}>{answerLine(r) || '—'}</td>
+                  {formLabel && <td className="max-w-[160px] truncate px-3 py-2.5 text-slate-500">{formLabel(r) ?? '—'}</td>}
+                  <td className="max-w-[200px] truncate px-3 py-2.5 font-mono text-[11px] text-slate-400" title={r.source_url ?? ''}>
                     {r.source_pathname || (r.source_url ? (() => { try { return new URL(r.source_url).pathname; } catch { return r.source_url; } })() : '—')}
                   </td>
                 </tr>
