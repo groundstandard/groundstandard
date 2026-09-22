@@ -301,7 +301,7 @@ export default function FormBuilder({ onBackToLaunch }: { onBackToLaunch?: () =>
             />
             {view === 'forms'
               ? <FormList forms={forms} leads={leadsFor} onNew={() => open(blank())} onOpen={open} />
-              : <SitesReport all={subs.rows} error={subs.error} at={subs.at} onReload={() => void subs.reload()} forms={forms ?? []} />}
+              : <SitesReport all={subs.rows} error={subs.error} at={subs.at} busy={subs.busy} onReload={() => void subs.reload()} forms={forms ?? []} />}
           </>
         ) : (
           <>
@@ -314,7 +314,7 @@ export default function FormBuilder({ onBackToLaunch }: { onBackToLaunch?: () =>
             ]}
           />
           {tab === 'report' ? (
-            <FormReport form={editing} all={subs.rows} error={subs.error} at={subs.at} onReload={() => void subs.reload()} />
+            <FormReport form={editing} all={subs.rows} error={subs.error} at={subs.at} busy={subs.busy} onReload={() => void subs.reload()} />
           ) : (
           <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_400px]">
             <div className="space-y-5">
