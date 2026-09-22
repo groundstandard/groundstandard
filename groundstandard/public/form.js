@@ -701,6 +701,34 @@
     mount.appendChild(box);
   }
 
+  // Some hosts render the page themselves after this script has drawn into it.
+  // React hydrating a Webstudio or Next page reconciles our mount against what
+  // it rendered -- an empty div -- and removes the form. On screen it appears
+  // for an instant and then the space is blank, which is exactly what it looks
+  // like when the script is broken.
+  //
+  // So watch the mount. If it is emptied by someone else, draw again. The guard
+  // is the form itself: redrawing replaces children and would otherwise trip
+  // the observer forever.
+  function keepDrawn(mount, draw) {
+    // Always the latest drawing, not the one the observer was created with:
+    // the first is a skeleton or a remembered copy, and putting that back after
+    // the real one had arrived would quietly serve a stale form.
+    mount.__gsfDraw = draw;
+    draw();
+    if (!window.MutationObserver) return;
+    if (mount.__gsfWatched) return;
+    mount.__gsfWatched = true;
+    var watcher = new MutationObserver(function () {
+      if (mount.querySelector('form') || mount.querySelector('.gsf-skeleton')) return;
+      // Never redraw over someone who is filling it in; the only way the mount
+      // is empty and touched at once is a race we would rather lose quietly.
+      if (touched(mount)) return;
+      mount.__gsfDraw();
+    });
+    watcher.observe(mount, { childList: true });
+  }
+
   function touched(mount) {
     var fields = mount.querySelectorAll('input, select, textarea');
     for (var i = 0; i < fields.length; i += 1) {
@@ -744,7 +772,8 @@
       // Render what we saw last time first. On a repeat visit the form is there
       // immediately; on a first visit there is a skeleton rather than a gap.
       var known = remembered(slug);
-      if (known) render(mount, placed(mount, known)); else skeleton(mount);
+      if (known) keepDrawn(mount, function () { render(mount, placed(mount, known)); });
+      else keepDrawn(mount, function () { skeleton(mount); });
 
       fetch(API + '/rest/v1/forms?slug=eq.' + encodeURIComponent(slug) + '&active=eq.true&select=*', {
         headers: { apikey: ANON, Authorization: 'Bearer ' + ANON },
@@ -761,13 +790,13 @@
           var fresh = rows[0];
           remember(slug, fresh);
 
-          if (!known) { render(mount, placed(mount, fresh)); return; }
+          if (!known) { keepDrawn(mount, function () { render(mount, placed(mount, fresh)); }); return; }
           if (JSON.stringify(fresh) === JSON.stringify(known)) return;
 
           // It changed. Redraw only if nobody has started filling it in —
           // replacing a form under someone's hands would throw away their typing.
           if (touched(mount)) return;
-          render(mount, placed(mount, fresh));
+          keepDrawn(mount, function () { render(mount, placed(mount, fresh)); });
         })
         .catch(function () {
           if (!known) mount.textContent = 'This form could not be loaded.';
