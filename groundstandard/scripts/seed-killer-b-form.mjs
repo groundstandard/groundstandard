@@ -106,10 +106,16 @@ const row = {
   privacy_url: '/privacy',
   terms_url: '/terms',
   redirect_enabled: true,
-  redirect_default: '/thank-you/contact',
-  // The site routes by which form was filled in, not by what was answered in
-  // it, so there is no rule to carry. The old rule pointed at a field that is
-  // being removed.
+  // One destination, because there is only one page worth landing on: the
+  // calendar sits on /thank-you/trial and nowhere else. A rule per answer would
+  // read as three different outcomes and deliver the same one. When there is a
+  // page per calendar, the rules go in and this becomes the fallback.
+  //
+  // This is the one place the record deliberately differs from the site today.
+  // The site sends this form to /thank-you/contact, which has no calendar --
+  // so a visitor who pressed "Start Your Trial" arrives somewhere they cannot
+  // book.
+  redirect_default: '/thank-you/trial',
   redirect_rules: [],
   fields,
   theme,
