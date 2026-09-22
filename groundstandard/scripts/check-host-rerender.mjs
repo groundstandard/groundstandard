@@ -47,7 +47,7 @@ Object.defineProperty(window.document, 'currentScript', {
 window.eval(readFileSync(new URL('../public/form.js', import.meta.url), 'utf8'));
 await new Promise((r) => setTimeout(r, 300));
 
-const mount = window.document.querySelector('[data-gs-form]');
+let mount = window.document.querySelector('[data-gs-form]');
 const results = [];
 const check = (name, pass, detail) => results.push({ name, pass, detail });
 
@@ -73,6 +73,19 @@ mount.innerHTML = '';
 await new Promise((r) => setTimeout(r, 120));
 check('it survives being emptied repeatedly', !!mount.querySelector('form'),
   mount.querySelector('form') ? 'still there' : 'gone');
+
+// The harder case, and the one that actually happened: the host replaces the
+// mount element itself. Whatever we were watching is now an orphan, and the
+// element on the page has never been drawn into.
+const fresh = window.document.createElement('div');
+fresh.setAttribute('data-gs-form', 'killer-b-contact');
+mount.parentNode.replaceChild(fresh, mount);
+await new Promise((r) => setTimeout(r, 400));
+check('it comes back when the host replaces the mount element',
+  !!fresh.querySelector('form'),
+  fresh.querySelector('form') ? 'redrawn into the new element' : 'the new element stayed empty');
+
+mount = fresh;
 
 // A host that re-renders around the form rather than emptying it must not
 // trigger a redraw either — that would throw away what someone had typed.

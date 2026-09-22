@@ -710,6 +710,72 @@
   // So watch the mount. If it is emptied by someone else, draw again. The guard
   // is the form itself: redrawing replaces children and would otherwise trip
   // the observer forever.
+  function mountOne(mount) {
+    if (!ANON) return;
+    var slug = mount.getAttribute('data-gs-form');
+
+    // Render what we saw last time first. On a repeat visit the form is there
+    // immediately; on a first visit there is a skeleton rather than a gap.
+    var known = remembered(slug);
+    if (known) keepDrawn(mount, function () { render(mount, placed(mount, known)); });
+    else keepDrawn(mount, function () { skeleton(mount); });
+
+    fetch(API + '/rest/v1/forms?slug=eq.' + encodeURIComponent(slug) + '&active=eq.true&select=*', {
+      headers: { apikey: ANON, Authorization: 'Bearer ' + ANON },
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (rows) {
+        if (!rows || !rows.length) {
+          // An unknown or paused form. If a remembered copy is on screen,
+          // leave it: a visitor mid-enquiry should not watch the form vanish.
+          if (!known) mount.textContent = 'Form "' + slug + '" was not found.';
+          return;
+        }
+
+        var fresh = rows[0];
+        remember(slug, fresh);
+
+        if (!known) { keepDrawn(mount, function () { render(mount, placed(mount, fresh)); }); return; }
+        if (JSON.stringify(fresh) === JSON.stringify(known)) return;
+
+        // It changed. Redraw only if nobody has started filling it in --
+        // replacing a form under someone's hands would throw away their typing.
+        if (touched(mount)) return;
+        keepDrawn(mount, function () { render(mount, placed(mount, fresh)); });
+      })
+      .catch(function () {
+        if (!known) mount.textContent = 'This form could not be loaded.';
+      });
+  }
+
+  // Watching one element is not enough. A host that hydrates the page can
+  // replace the mount itself rather than empty it, and then the element we were
+  // watching is an orphan and the new one on the page has never been drawn
+  // into. So watch the page: after anything changes, any mount without a form
+  // in it gets drawn. Reading the definition again is free -- the last copy is
+  // remembered, so the form is back in the same frame.
+  function watchPage() {
+    if (!window.MutationObserver || window.__gsfWatchingPage) return;
+    window.__gsfWatchingPage = true;
+    var pending = false;
+    var watcher = new MutationObserver(function () {
+      if (pending) return;
+      pending = true;
+      // Hydration fires hundreds of records; do the work once after it settles.
+      window.setTimeout(function () {
+        pending = false;
+        var all = document.querySelectorAll('[data-gs-form]');
+        for (var i = 0; i < all.length; i += 1) {
+          var mount = all[i];
+          if (mount.querySelector('form') || mount.querySelector('.gsf-skeleton')) continue;
+          if (touched(mount)) continue;
+          mountOne(mount);
+        }
+      }, 60);
+    });
+    watcher.observe(document.body, { childList: true, subtree: true });
+  }
+
   function keepDrawn(mount, draw) {
     // Always the latest drawing, not the one the observer was created with:
     // the first is a skeleton or a remembered copy, and putting that back after
@@ -765,43 +831,8 @@
     }
 
     warmUp();
-
-    mounts.forEach(function (mount) {
-      var slug = mount.getAttribute('data-gs-form');
-
-      // Render what we saw last time first. On a repeat visit the form is there
-      // immediately; on a first visit there is a skeleton rather than a gap.
-      var known = remembered(slug);
-      if (known) keepDrawn(mount, function () { render(mount, placed(mount, known)); });
-      else keepDrawn(mount, function () { skeleton(mount); });
-
-      fetch(API + '/rest/v1/forms?slug=eq.' + encodeURIComponent(slug) + '&active=eq.true&select=*', {
-        headers: { apikey: ANON, Authorization: 'Bearer ' + ANON },
-      })
-        .then(function (r) { return r.json(); })
-        .then(function (rows) {
-          if (!rows || !rows.length) {
-            // An unknown or paused form. If a remembered copy is on screen,
-            // leave it: a visitor mid-enquiry should not watch the form vanish.
-            if (!known) mount.textContent = 'Form "' + slug + '" was not found.';
-            return;
-          }
-
-          var fresh = rows[0];
-          remember(slug, fresh);
-
-          if (!known) { keepDrawn(mount, function () { render(mount, placed(mount, fresh)); }); return; }
-          if (JSON.stringify(fresh) === JSON.stringify(known)) return;
-
-          // It changed. Redraw only if nobody has started filling it in —
-          // replacing a form under someone's hands would throw away their typing.
-          if (touched(mount)) return;
-          keepDrawn(mount, function () { render(mount, placed(mount, fresh)); });
-        })
-        .catch(function () {
-          if (!known) mount.textContent = 'This form could not be loaded.';
-        });
-    });
+    mounts.forEach(mountOne);
+    watchPage();
   }
 
   // The builder's preview draws with this same function, so the form on that
