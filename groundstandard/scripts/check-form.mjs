@@ -715,6 +715,25 @@ console.log('\nwhere they go afterwards — rules:');
   is('the old adult/youth pair still decides when no rules are set', legacy.nav.to, 'https://example.com/youth');
 }
 
+console.log('\na test lead from the builder is shaped like a real one:');
+{
+  const { window, doc, calls } = await mount();
+  const form = doc.querySelector('form.gsf');
+  fill(form, { first_name: 'Real', last_name: 'Lead', email: 'real@example.com', phone: '555 0100', program: 'Adult', consent: true });
+  await submit(form, window);
+  const real = calls.find(c => c.url.includes('leadconnectorhq')).body;
+
+  window.GSF.payload ? ok('form.js hands its payload builder out') : bad('form.js hands its payload builder out', 'no GSF.payload');
+  const test = window.GSF.payload(DEF, { first_name: 'Test', last_name: 'Lead', email: 't@example.com', phone: '555 0100', program: 'Adult', consent: true }, {});
+  const missing = Object.keys(real).filter(k => !(k in test) && k !== 'utm_source');
+  missing.length
+    ? bad('every key a real lead carries is on the test lead too', 'missing ' + missing.join(', '))
+    : ok('every key a real lead carries is on the test lead too', Object.keys(test).length + ' keys');
+  is('  the name is joined the same way', test.name, 'Test Lead');
+  is('  form_name, which the CRM workflow reads', test.form_name, 'Ronin BJJ free trial');
+  is('  and the form it came from', test._form, 'ronin-trial');
+}
+
 console.log(failures.length
   ? `\n${failures.length} failed: ${failures.join(', ')}`
   : '\nall checks passed');

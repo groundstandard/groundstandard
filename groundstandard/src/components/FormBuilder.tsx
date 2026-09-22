@@ -15,6 +15,7 @@
 // to copy rather than a wall of key.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Send } from 'lucide-react';
 import type { ReactNode } from 'react';
 import {
   AlignLeft, ArrowLeft, AtSign, Check, CheckSquare, ChevronDown, ClipboardList,
@@ -24,6 +25,7 @@ import {
 import { supabase } from '../lib/supabase';
 import FormDesign, { countSet, pruneTheme } from './FormDesign';
 import type { FormTheme } from './FormDesign';
+import { FormReport, SitesReport, matchesForm, useSubmissions } from './FormReport';
 
 type FieldType = 'text' | 'email' | 'phone' | 'select' | 'textarea' | 'checkbox' | 'hidden';
 
@@ -125,6 +127,13 @@ export default function FormBuilder({ onBackToLaunch }: { onBackToLaunch?: () =>
   const [justSaved, setJustSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // What came in. One pull shared by the list (every site), each form's Report
+  // tab, and the Leads column; polled the way the Leads screen polls.
+  const subs = useSubmissions();
+  const leadsFor = (f: FormDef) => (subs.rows ?? []).filter(r => matchesForm(r, f)).length;
+  const [view, setView] = useState<'forms' | 'report'>('forms');   // the list screen
+  const [tab, setTab] = useState<'build' | 'report'>('build');     // inside a form
+
   const load = useCallback(async () => {
     setError(null);
     const { data, error: err } = await supabase
@@ -139,6 +148,7 @@ export default function FormBuilder({ onBackToLaunch }: { onBackToLaunch?: () =>
     setError(null);
     // A row saved before the Design panel existed has no theme; same as empty.
     const next = f ? { ...f, theme: f.theme ?? {}, redirect_rules: f.redirect_rules ?? [] } : null;
+    setTab('build');
     setEditing(next);
     setSaved(next ? JSON.stringify(next) : '');
   };
@@ -280,8 +290,32 @@ export default function FormBuilder({ onBackToLaunch }: { onBackToLaunch?: () =>
         )}
 
         {!editing ? (
-          <FormList forms={forms} onNew={() => open(blank())} onOpen={open} />
+          <>
+            <Tabs
+              value={view}
+              onChange={setView}
+              items={[
+                { value: 'forms', label: 'Forms' },
+                { value: 'report', label: subs.rows ? `Report · ${subs.rows.length.toLocaleString()} leads` : 'Report' },
+              ]}
+            />
+            {view === 'forms'
+              ? <FormList forms={forms} leads={leadsFor} onNew={() => open(blank())} onOpen={open} />
+              : <SitesReport all={subs.rows} error={subs.error} at={subs.at} onReload={() => void subs.reload()} forms={forms ?? []} />}
+          </>
         ) : (
+          <>
+          <Tabs
+            value={tab}
+            onChange={setTab}
+            items={[
+              { value: 'build', label: 'Build' },
+              { value: 'report', label: subs.rows ? `Report · ${leadsFor(editing).toLocaleString()} leads` : 'Report' },
+            ]}
+          />
+          {tab === 'report' ? (
+            <FormReport form={editing} all={subs.rows} error={subs.error} at={subs.at} onReload={() => void subs.reload()} />
+          ) : (
           <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_400px]">
             <div className="space-y-5">
               <Card>
@@ -361,10 +395,11 @@ export default function FormBuilder({ onBackToLaunch }: { onBackToLaunch?: () =>
                       ? { tone: 'good', text: hostOf(editing.ghl_webhook_url) ?? 'set' }
                       : { tone: 'warn', text: 'not set — leads go nowhere' }}
                   />
+                  {editing.ghl_webhook_url && <TestLead def={editing} />}
 
                   <Switch
                     label="Keep a copy in our reporting"
-                    hint="How the Leads screen fills up, and how we notice when a site goes quiet."
+                    hint="How the Report tab and the Leads screen fill up, and how we notice when a site goes quiet."
                     value={editing.report_enabled}
                     onChange={(v) => patch({ report_enabled: v })}
                   />
@@ -447,6 +482,8 @@ export default function FormBuilder({ onBackToLaunch }: { onBackToLaunch?: () =>
               <Embed def={editing} />
             </div>
           </div>
+          )}
+          </>
         )}
       </main>
     </div>
@@ -454,6 +491,26 @@ export default function FormBuilder({ onBackToLaunch }: { onBackToLaunch?: () =>
 }
 
 /* ── shell ─────────────────────────────────────────────────────────────── */
+
+function Tabs<T extends string>({ value, onChange, items }: {
+  value: T; onChange: (v: T) => void; items: { value: T; label: string }[];
+}) {
+  return (
+    <div className="mb-5 inline-flex gap-0.5 rounded-xl border border-slate-200 bg-white p-1 shadow-sm shadow-slate-200/50">
+      {items.map(i => (
+        <button
+          key={i.value}
+          onClick={() => onChange(i.value)}
+          className={`rounded-lg px-3.5 py-1.5 text-sm font-medium transition ${
+            value === i.value ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-900'
+          }`}
+        >
+          {i.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function Card({ children }: { children: ReactNode }) {
   return (
@@ -477,8 +534,9 @@ function CardHead({ title, hint, right }: { title: string; hint?: string; right?
 
 /* ── the list ──────────────────────────────────────────────────────────── */
 
-function FormList({ forms, onNew, onOpen }: {
+function FormList({ forms, leads, onNew, onOpen }: {
   forms: FormDef[] | null;
+  leads: (f: FormDef) => number;
   onNew: () => void;
   onOpen: (f: FormDef) => void;
 }) {
@@ -542,15 +600,15 @@ function FormList({ forms, onNew, onOpen }: {
         </div>
       ) : (
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
-          <div className="hidden grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_100px_140px] gap-4 border-b border-slate-100 bg-slate-50/70 px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 md:grid">
-            <span>Form</span><span>Sends to</span><span>Fields</span><span>Updated</span>
+          <div className="hidden grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_80px_80px_140px] gap-4 border-b border-slate-100 bg-slate-50/70 px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 md:grid">
+            <span>Form</span><span>Sends to</span><span>Fields</span><span>Leads</span><span>Updated</span>
           </div>
           <div className="divide-y divide-slate-100">
             {shown.map((f) => (
               <button
                 key={f.id ?? f.slug}
                 onClick={() => onOpen(f)}
-                className="grid w-full grid-cols-1 gap-2 px-5 py-4 text-left transition hover:bg-slate-50 md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_100px_140px] md:items-center md:gap-4"
+                className="grid w-full grid-cols-1 gap-2 px-5 py-4 text-left transition hover:bg-slate-50 md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_80px_80px_140px] md:items-center md:gap-4"
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
@@ -578,6 +636,10 @@ function FormList({ forms, onNew, onOpen }: {
                 </div>
 
                 <div className="pl-3.5 text-xs text-slate-500 md:pl-0">{f.fields?.length ?? 0} fields</div>
+
+                <div className="pl-3.5 text-xs tabular-nums text-slate-700 md:pl-0">
+                  {leads(f) ? `${leads(f).toLocaleString()} lead${leads(f) === 1 ? '' : 's'}` : <span className="text-slate-300">—</span>}
+                </div>
 
                 <div className="pl-3.5 text-xs text-slate-400 md:pl-0">
                   {f.updated_at
@@ -767,7 +829,10 @@ function FieldRow({ field, index, count, onChange, onMoveTo, onDropFrom, onRemov
 // this for a picture of the form.
 declare global {
   interface Window {
-    GSF?: { render: (mount: HTMLElement, def: unknown, opts?: { preview?: boolean }) => void };
+    GSF?: {
+      render: (mount: HTMLElement, def: unknown, opts?: { preview?: boolean }) => void;
+      payload: (def: unknown, data: Record<string, unknown>, attr?: Record<string, unknown>) => Record<string, unknown>;
+    };
   }
 }
 
@@ -1067,6 +1132,74 @@ function RedirectRules({ fields, rules, fallback, onRules, onFallback }: {
         or a path on the same site (<code className="rounded bg-white px-1 font-mono">/thank-you/bjj</code>). Leave an address empty and those
         visitors stay on the page and read the thank-you message instead.
       </p>
+    </div>
+  );
+}
+
+/* ── a test lead ───────────────────────────────────────────────────────── */
+
+// Sends one made-up submission to the webhook, built by the embed's own
+// payload function so it has exactly the keys a real lead has, plus
+// _test: true so a CRM workflow can tell it apart. Goes to the CRM only —
+// never to our reporting, so it does not show up as a lead anywhere here.
+function sampleData(fields: FormField[]) {
+  const data: Record<string, unknown> = {};
+  for (const f of fields) {
+    switch (f.type) {
+      case 'hidden':   data[f.name] = f.value ?? ''; break;
+      case 'checkbox': data[f.name] = true; break;
+      case 'email':    data[f.name] = 'test-lead@groundstandard.com'; break;
+      case 'phone':    data[f.name] = '555 0100'; break;
+      case 'select':   data[f.name] = f.options?.length ? optionParts(f.options[0]).value : ''; break;
+      case 'textarea': data[f.name] = 'Test submission from the Custom Form Builder — safe to delete.'; break;
+      default:
+        data[f.name] = f.name === 'first_name' ? 'Test' : f.name === 'last_name' ? 'Lead' : f.name === 'name' ? 'Test Lead' : 'Test';
+    }
+  }
+  return data;
+}
+
+function TestLead({ def }: { def: FormDef }) {
+  const [state, setState] = useState<{ kind: 'idle' | 'sending' | 'ok' | 'bad'; text?: string }>({ kind: 'idle' });
+
+  const send = async () => {
+    const url = def.ghl_webhook_url;
+    if (!url) return;
+    if (!window.GSF?.payload) {
+      setState({ kind: 'bad', text: 'The form script has not loaded yet — try again in a second.' });
+      return;
+    }
+    setState({ kind: 'sending' });
+    const payload = { ...window.GSF.payload(def, sampleData(def.fields), {}), _test: true };
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      setState(res.ok
+        ? { kind: 'ok', text: `GoHighLevel answered ${res.status}. Look for "Test Lead" in the CRM.` }
+        : { kind: 'bad', text: `GoHighLevel refused it — HTTP ${res.status}. Check the webhook is still live in the workflow.` });
+    } catch (e) {
+      setState({ kind: 'bad', text: `Could not reach it: ${e instanceof Error ? e.message : 'network error'}.` });
+    }
+  };
+
+  return (
+    <div className="-mt-1 flex flex-wrap items-center gap-3">
+      <button
+        onClick={() => void send()}
+        disabled={state.kind === 'sending'}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:text-slate-900 disabled:opacity-50"
+      >
+        {state.kind === 'sending' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+        {state.kind === 'sending' ? 'Sending…' : 'Send a test lead'}
+      </button>
+      <span className={`text-[11px] leading-relaxed ${
+        state.kind === 'ok' ? 'text-emerald-700' : state.kind === 'bad' ? 'text-red-600' : 'text-slate-400'
+      }`}>
+        {state.text ?? 'Posts one made-up submission — Test Lead, test-lead@groundstandard.com — with every field this form has, marked _test: true. CRM only; it never counts in our reporting.'}
+      </span>
     </div>
   );
 }

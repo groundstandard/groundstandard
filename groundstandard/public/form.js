@@ -19,7 +19,9 @@
 
   var API = 'https://qkwiauivaerrrbemdlyj.supabase.co';
   var ANON = document.currentScript && document.currentScript.getAttribute('data-key');
-  var REPORT = 'https://primary-production-aa130.up.railway.app/webhook/c7e4d2ca-duda-gs-getinfo';
+  // Our copy of every submission. n8n writes it into form_submissions, which is
+  // what the Report tab in the builder and the Leads screen both read.
+  var REPORT = 'https://primary-production-aa130.up.railway.app/webhook/gsformbuilder/getinfodataoftheform';
 
   // One stylesheet for every form on the page. Each rule reads its value from a
   // CSS variable with today's look as the fallback, and the Design panel's
@@ -474,6 +476,27 @@
     return missing.length ? missing[0] : null;
   }
 
+  // What a lead looks like on the wire. One function, so the test lead the
+  // builder sends to a webhook has exactly the keys a real one has.
+  function payloadFor(def, data, attr) {
+    var payload = Object.assign({}, attr || {}, data, {
+      _form: def.slug,
+      _form_name: def.name,
+      _source_url: location.href,
+      _source_hostname: location.hostname,
+      _source_pathname: location.pathname,
+      _source_referrer: document.referrer || '',
+      _submitted_at: new Date().toISOString(),
+    });
+
+    var whole = [data.first_name, data.last_name].filter(Boolean).join(' ').trim();
+    if (whole && !payload.name) payload.name = whole;
+    if (!payload.form_name) payload.form_name = def.name || def.slug;
+    if (!payload.page_url) payload.page_url = location.href;
+    if (!payload.source) payload.source = def.name || def.slug;
+    return payload;
+  }
+
   function submit(form, def, btn, msg) {
     // The trap was filled in, so this is not a person. Behave exactly as if it
     // worked: a bot that is told it failed simply tries again.
@@ -503,21 +526,7 @@
     // Attribution first, so a field someone actually named utm_source on the
     // form wins over the one read off the URL.
     var attr = attribution();
-    var payload = Object.assign({}, attr, data, {
-      _form: def.slug,
-      _form_name: def.name,
-      _source_url: location.href,
-      _source_hostname: location.hostname,
-      _source_pathname: location.pathname,
-      _source_referrer: document.referrer || '',
-      _submitted_at: new Date().toISOString(),
-    });
-
-    var whole = [data.first_name, data.last_name].filter(Boolean).join(' ').trim();
-    if (whole && !payload.name) payload.name = whole;
-    if (!payload.form_name) payload.form_name = def.name || def.slug;
-    if (!payload.page_url) payload.page_url = location.href;
-    if (!payload.source) payload.source = def.name || def.slug;
+    var payload = payloadFor(def, data, attr);
 
     // Our copy. Deliberately not awaited and deliberately not able to block the
     // CRM call — during the July outage this endpoint was dead for eight weeks
@@ -696,7 +705,7 @@
 
   // The builder's preview draws with this same function, so the form on that
   // screen and the form on the client's site are one piece of code.
-  window.GSF = { render: render, CSS: CSS };
+  window.GSF = { render: render, payload: payloadFor, CSS: CSS };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
