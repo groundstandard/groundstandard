@@ -385,6 +385,35 @@
     return row;
   }
 
+  // One definition, many placements. The same form sits in the blog tail, in
+  // the footer and on the contact page, and a lead has to say which of them it
+  // came from -- "we also need to be able to name each of the forms, so that we
+  // can track the attribution" -- and they do not all thank the visitor on the
+  // same page. Two optional attributes on the mount override exactly that much
+  // and nothing else, so there is still one form to edit.
+  //
+  //   <div data-gs-form="killer-b-contact"
+  //        data-gs-source="website blog is jiu jitsu safe"
+  //        data-gs-thanks="/thank-you/trial"></div>
+  function placed(mount, def) {
+    var source = mount.getAttribute('data-gs-source');
+    var thanks = mount.getAttribute('data-gs-thanks');
+    if (!source && !thanks) return def;
+    var out = {};
+    for (var key in def) {
+      if (Object.prototype.hasOwnProperty.call(def, key)) out[key] = def[key];
+    }
+    if (source) out.name = source;
+    if (thanks) {
+      // This placement says where it goes, so a rule written for another one
+      // must not win over it.
+      out.redirect_enabled = true;
+      out.redirect_default = thanks;
+      out.redirect_rules = [];
+    }
+    return out;
+  }
+
   function render(mount, def, opts) {
     opts = opts || {};
     styleOnce();
@@ -715,7 +744,7 @@
       // Render what we saw last time first. On a repeat visit the form is there
       // immediately; on a first visit there is a skeleton rather than a gap.
       var known = remembered(slug);
-      if (known) render(mount, known); else skeleton(mount);
+      if (known) render(mount, placed(mount, known)); else skeleton(mount);
 
       fetch(API + '/rest/v1/forms?slug=eq.' + encodeURIComponent(slug) + '&active=eq.true&select=*', {
         headers: { apikey: ANON, Authorization: 'Bearer ' + ANON },
@@ -732,13 +761,13 @@
           var fresh = rows[0];
           remember(slug, fresh);
 
-          if (!known) { render(mount, fresh); return; }
+          if (!known) { render(mount, placed(mount, fresh)); return; }
           if (JSON.stringify(fresh) === JSON.stringify(known)) return;
 
           // It changed. Redraw only if nobody has started filling it in —
           // replacing a form under someone's hands would throw away their typing.
           if (touched(mount)) return;
-          render(mount, fresh);
+          render(mount, placed(mount, fresh));
         })
         .catch(function () {
           if (!known) mount.textContent = 'This form could not be loaded.';
