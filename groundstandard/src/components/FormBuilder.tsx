@@ -212,7 +212,7 @@ export default function FormBuilder({ onBackToLaunch }: { onBackToLaunch?: () =>
 
             <div className="min-w-0 flex-1">
               <h1 className="truncate text-[15px] font-semibold leading-tight text-slate-900">
-                {editing ? (editing.name || 'Untitled form') : 'Forms'}
+                {editing ? (editing.name || 'Untitled form') : 'Custom Form Builder'}
               </h1>
               <p className="truncate text-xs text-slate-500">
                 {editing

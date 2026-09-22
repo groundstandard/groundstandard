@@ -160,7 +160,7 @@ export default function LaunchPad({ onLaunchArticleGenerator, onLaunchFormSubmis
 
   const dataTools: ToolCard[] = [
     {
-      title: 'Form Builder',
+      title: 'Custom Form Builder',
       tagline: 'Forms We Own',
       description: 'Build a form once and embed one line on the site. Submissions post straight to that client’s GoHighLevel. Change a field here and every site has it immediately — nothing to republish.',
       features: ['Fields, wording and redirects', 'Straight to GoHighLevel', 'One embed, updates everywhere'],
