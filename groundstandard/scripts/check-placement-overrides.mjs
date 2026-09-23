@@ -39,6 +39,8 @@ const dom = new JSDOM(`<!doctype html><html><body>
   <div id="b" data-gs-form="killer-b-contact"
        data-gs-source="website blog is jiu jitsu safe"
        data-gs-thanks="/thank-you/trial"></div>
+  <footer><div id="c" data-gs-form="killer-b-contact"></div></footer>
+  <article><div id="d" data-gs-form="killer-b-contact"></div></article>
 </body></html>`, { url: 'https://killerbhq.com/blog/is-jiu-jitsu-safe',
   runScripts: 'outside-only', pretendToBeVisual: true });
 const { window } = dom;
@@ -82,8 +84,10 @@ const send = async (mountId, values) => {
 };
 
 const plain = await send('a', { first_name: 'Juan', last_name: 'Cruz', email: 'j@example.com' });
-check('a plain placement keeps the record name',
-  plain && plain.form_name === 'Killer B HQ — website contact', plain && plain.form_name);
+// A placement with nothing typed on it no longer borrows the record's name --
+// one name shared by every placement is what made attribution useless.
+check('a plain placement names itself from where it sits',
+  plain && plain.form_name === 'website blog is jiu jitsu safe cta', plain && plain.form_name);
 const plainWent = went.slice();
 
 const moved = window.document.querySelector('#b form');
@@ -99,12 +103,27 @@ check('and its source matches', named && named.source === 'website blog is jiu j
 // The two must not bleed into each other — one definition object, two readings.
 const again = await send('a', { first_name: 'Juan', last_name: 'Cruz', email: 'j@example.com' });
 check('the override does not leak onto the plain one',
-  again && again.form_name === 'Killer B HQ — website contact', again && again.form_name);
+  again && again.form_name === 'website blog is jiu jitsu safe cta', again && again.form_name);
 
 check('the plain placement uses the page on the record',
   plainWent[0] === '/thank-you/contact', plainWent[0] || 'went nowhere');
 check('the overridden placement uses its own page',
   namedWent[0] === '/thank-you/trial', namedWent[0] || 'went nowhere');
+
+// With nothing typed on it, a placement still says where it sits: the shape the
+// agency reads attribution in, on every site, without anybody maintaining it.
+const derived = await send('c', { first_name: 'Ana', last_name: 'Reyes', email: 'a@example.com' });
+check('a footer placement names itself',
+  derived && derived.form_name === 'website blog is jiu jitsu safe footer',
+  derived && derived.form_name);
+
+const inArticle = await send('d', { first_name: 'Ben', last_name: 'Cruz', email: 'b@example.com' });
+check('an in-article placement names itself',
+  inArticle && inArticle.form_name === 'website blog is jiu jitsu safe article',
+  inArticle && inArticle.form_name);
+
+check('a typed name still wins over the worked-out one',
+  named && named.form_name === 'website blog is jiu jitsu safe', named && named.form_name);
 
 let failed = 0;
 for (const r of results) {

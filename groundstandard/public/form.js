@@ -420,10 +420,36 @@
   //   <div data-gs-form="killer-b-contact"
   //        data-gs-source="website blog is jiu jitsu safe"
   //        data-gs-thanks="/thank-you/trial"></div>
+  // Where on the site a lead was captured, worked out rather than typed.
+  //
+  // The shape the agency reads attribution in is website + page + area:
+  // "website homepage cta", "website blab footer", "website blog is-jiu-jitsu
+  // -safe article". Typing that onto every placement of every site is work
+  // nobody will keep up, and a name nobody keeps up is a name that lies. So the
+  // embed works it out, and data-gs-source stays as the override for the times
+  // a placement deserves a name of its own.
+  function areaOf(mount) {
+    for (var el = mount; el && el !== document.body; el = el.parentElement) {
+      var tag = (el.tagName || '').toLowerCase();
+      if (tag === 'footer') return 'footer';
+      if (tag === 'dialog' || el.getAttribute('role') === 'dialog') return 'popup';
+      if (tag === 'article') return 'article';
+      if (tag === 'header') return 'hero';
+    }
+    return 'cta';
+  }
+
+  function placeName(mount) {
+    var path = String(location.pathname || '').replace(/\/+$/, '');
+    var page = path
+      ? path.split('/').filter(Boolean).join(' ').replace(/[-_]+/g, ' ')
+      : 'homepage';
+    return ('website ' + page + ' ' + areaOf(mount)).replace(/\s+/g, ' ').trim();
+  }
+
   function placed(mount, def) {
-    var source = mount.getAttribute('data-gs-source');
+    var source = mount.getAttribute('data-gs-source') || placeName(mount);
     var thanks = mount.getAttribute('data-gs-thanks');
-    if (!source && !thanks) return def;
     var out = {};
     for (var key in def) {
       if (Object.prototype.hasOwnProperty.call(def, key)) out[key] = def[key];
