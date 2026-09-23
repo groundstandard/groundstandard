@@ -587,11 +587,21 @@
     if (copy.firstName == null && who.first_name) copy.firstName = who.first_name;
     if (copy.lastName == null && who.last_name) copy.lastName = who.last_name;
 
-    var urls = [{
+    var urls = [];
+    (def.webhook_rules || []).forEach(function (r) {
+      if (!r || !r.url) return;
+      urls.push({
+        url: r.url,
+        purpose: r.field + ' = ' + r.value
+          + ' CRM — receives form submission data to create/update contacts',
+        trigger: 'on_form_submit_when_' + slugish(r.field) + '_is_' + slugish(r.value),
+      });
+    });
+    urls.push({
       url: def.ghl_webhook_url || '(not configured)',
       purpose: 'HighLevel CRM — receives form submission data to create/update contacts',
       trigger: 'on_form_submit',
-    }];
+    });
     if (def.redirect_enabled) {
       var rules = def.redirect_rules || [];
       rules.forEach(function (r) {
@@ -616,6 +626,20 @@
     }
     copy._urls = urls;
     return copy;
+  }
+
+  // Which CRM this particular lead belongs to. A gym that sells two things under
+  // two businesses -- Killer B's martial arts, BLAB's fitness -- has two CRMs,
+  // and the answer decides: "if interest is Fitness, post it there instead".
+  // Read top to bottom, first match wins, and a lead no rule catches goes to the
+  // form's own webhook, which is what every form did before rules existed.
+  function webhookFor(def, data) {
+    var rules = def.webhook_rules || [];
+    for (var i = 0; i < rules.length; i += 1) {
+      var rule = rules[i] || {};
+      if (rule.url && rule.field && same(data[rule.field], rule.value)) return rule.url;
+    }
+    return def.ghl_webhook_url || null;
   }
 
   function slugish(v) {
@@ -666,12 +690,13 @@
       } catch (err) { /* never blocks */ }
     }
 
-    if (!def.ghl_webhook_url) {
+    var crm = webhookFor(def, data);
+    if (!crm) {
       done(true);
       return;
     }
 
-    fetch(def.ghl_webhook_url, {
+    fetch(crm, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),

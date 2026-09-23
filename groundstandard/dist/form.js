@@ -420,10 +420,36 @@
   //   <div data-gs-form="killer-b-contact"
   //        data-gs-source="website blog is jiu jitsu safe"
   //        data-gs-thanks="/thank-you/trial"></div>
+  // Where on the site a lead was captured, worked out rather than typed.
+  //
+  // The shape the agency reads attribution in is website + page + area:
+  // "website homepage cta", "website blab footer", "website blog is-jiu-jitsu
+  // -safe article". Typing that onto every placement of every site is work
+  // nobody will keep up, and a name nobody keeps up is a name that lies. So the
+  // embed works it out, and data-gs-source stays as the override for the times
+  // a placement deserves a name of its own.
+  function areaOf(mount) {
+    for (var el = mount; el && el !== document.body; el = el.parentElement) {
+      var tag = (el.tagName || '').toLowerCase();
+      if (tag === 'footer') return 'footer';
+      if (tag === 'dialog' || el.getAttribute('role') === 'dialog') return 'popup';
+      if (tag === 'article') return 'article';
+      if (tag === 'header') return 'hero';
+    }
+    return 'cta';
+  }
+
+  function placeName(mount) {
+    var path = String(location.pathname || '').replace(/\/+$/, '');
+    var page = path
+      ? path.split('/').filter(Boolean).join(' ').replace(/[-_]+/g, ' ')
+      : 'homepage';
+    return ('website ' + page + ' ' + areaOf(mount)).replace(/\s+/g, ' ').trim();
+  }
+
   function placed(mount, def) {
-    var source = mount.getAttribute('data-gs-source');
+    var source = mount.getAttribute('data-gs-source') || placeName(mount);
     var thanks = mount.getAttribute('data-gs-thanks');
-    if (!source && !thanks) return def;
     var out = {};
     for (var key in def) {
       if (Object.prototype.hasOwnProperty.call(def, key)) out[key] = def[key];
@@ -561,11 +587,21 @@
     if (copy.firstName == null && who.first_name) copy.firstName = who.first_name;
     if (copy.lastName == null && who.last_name) copy.lastName = who.last_name;
 
-    var urls = [{
+    var urls = [];
+    (def.webhook_rules || []).forEach(function (r) {
+      if (!r || !r.url) return;
+      urls.push({
+        url: r.url,
+        purpose: r.field + ' = ' + r.value
+          + ' CRM — receives form submission data to create/update contacts',
+        trigger: 'on_form_submit_when_' + slugish(r.field) + '_is_' + slugish(r.value),
+      });
+    });
+    urls.push({
       url: def.ghl_webhook_url || '(not configured)',
       purpose: 'HighLevel CRM — receives form submission data to create/update contacts',
       trigger: 'on_form_submit',
-    }];
+    });
     if (def.redirect_enabled) {
       var rules = def.redirect_rules || [];
       rules.forEach(function (r) {
@@ -590,6 +626,20 @@
     }
     copy._urls = urls;
     return copy;
+  }
+
+  // Which CRM this particular lead belongs to. A gym that sells two things under
+  // two businesses -- Killer B's martial arts, BLAB's fitness -- has two CRMs,
+  // and the answer decides: "if interest is Fitness, post it there instead".
+  // Read top to bottom, first match wins, and a lead no rule catches goes to the
+  // form's own webhook, which is what every form did before rules existed.
+  function webhookFor(def, data) {
+    var rules = def.webhook_rules || [];
+    for (var i = 0; i < rules.length; i += 1) {
+      var rule = rules[i] || {};
+      if (rule.url && rule.field && same(data[rule.field], rule.value)) return rule.url;
+    }
+    return def.ghl_webhook_url || null;
   }
 
   function slugish(v) {
@@ -640,12 +690,13 @@
       } catch (err) { /* never blocks */ }
     }
 
-    if (!def.ghl_webhook_url) {
+    var crm = webhookFor(def, data);
+    if (!crm) {
       done(true);
       return;
     }
 
-    fetch(def.ghl_webhook_url, {
+    fetch(crm, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),

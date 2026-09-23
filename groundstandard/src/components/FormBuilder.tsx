@@ -43,12 +43,19 @@ type FormField = {
 // "If this field is this answer, go here." Read top to bottom; first match wins.
 type RedirectRule = { field: string; value: string; url: string };
 
+// The same sentence about the CRM rather than the browser: "if this field is
+// this answer, post the lead there instead." A gym that sells two things under
+// two businesses — Killer B's martial arts, BLAB's fitness — has two CRMs, and
+// one form on the site has to feed both.
+type WebhookRule = { field: string; value: string; url: string };
+
 type FormDef = {
   id?: string;
   slug: string;
   name: string;
   site_hostname: string | null;
   ghl_webhook_url: string | null;
+  webhook_rules: WebhookRule[];  // checked first; nothing matching means the address above
   report_enabled: boolean;
   redirect_enabled: boolean;
   redirect_adult: string | null;   // before rules existed; kept, still carried
@@ -83,6 +90,7 @@ const blank = (): FormDef => ({
   name: '',
   site_hostname: null,
   ghl_webhook_url: null,
+  webhook_rules: [],
   report_enabled: true,
   redirect_enabled: false,
   redirect_adult: null,
@@ -152,7 +160,9 @@ export default function FormBuilder({ onBackToLaunch }: { onBackToLaunch?: () =>
   const open = (f: FormDef | null) => {
     setError(null);
     // A row saved before the Design panel existed has no theme; same as empty.
-    const next = f ? { ...f, theme: f.theme ?? {}, redirect_rules: f.redirect_rules ?? [] } : null;
+    const next = f
+      ? { ...f, theme: f.theme ?? {}, redirect_rules: f.redirect_rules ?? [], webhook_rules: f.webhook_rules ?? [] }
+      : null;
     setTab('build');
     setEditing(next);
     setSaved(next ? JSON.stringify(next) : '');
@@ -403,7 +413,17 @@ export default function FormBuilder({ onBackToLaunch }: { onBackToLaunch?: () =>
                       ? { tone: 'good', text: hostOf(editing.ghl_webhook_url) ?? 'set' }
                       : { tone: 'warn', text: 'not set — leads go nowhere' }}
                   />
-                  {editing.ghl_webhook_url && <TestLead def={editing} />}
+                  {(editing.ghl_webhook_url || (editing.webhook_rules ?? []).some(r => r.url)) && <TestLead def={editing} />}
+
+                  <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                    <p className="mb-3 text-xs font-semibold text-slate-600">Send some answers to a different CRM</p>
+                    <WebhookRules
+                      fields={editing.fields}
+                      rules={editing.webhook_rules ?? []}
+                      fallback={editing.ghl_webhook_url}
+                      onRules={(rules) => patch({ webhook_rules: rules })}
+                    />
+                  </div>
 
                   <Switch
                     label="Keep a copy in our reporting"
@@ -635,6 +655,9 @@ function FormList({ forms, leads, onNew, onOpen }: {
                   {f.ghl_webhook_url ? (
                     <span className="block truncate text-xs text-slate-600">
                       {hostOf(f.ghl_webhook_url) ?? 'webhook set'}
+                      {(f.webhook_rules ?? []).some(r => r.url)
+                        ? ` + ${(f.webhook_rules ?? []).filter(r => r.url).length} by answer`
+                        : ''}
                     </span>
                   ) : (
                     <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
@@ -1099,15 +1122,21 @@ const optionParts = (o: string) => {
 const RULE_SELECT = 'rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none transition focus:border-blue-400';
 const RULE_URL = 'min-w-[150px] flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-mono text-[11px] text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-blue-400';
 
-function RedirectRules({ fields, rules, fallback, onRules, onFallback }: {
+type Rule = { field: string; value: string; url: string };
+
+// One "if this answer, then this address" list. Two things on this screen read
+// exactly like that — which page the visitor lands on, which CRM the lead is
+// posted to — so they are the same rows with different wording around them.
+function RuleRows({ fields, rules, onRules, placeholder, addLabel, noChoices }: {
   fields: FormField[];
-  rules: RedirectRule[];
-  fallback: string;
-  onRules: (rules: RedirectRule[]) => void;
-  onFallback: (url: string) => void;
+  rules: Rule[];
+  onRules: (rules: Rule[]) => void;
+  placeholder: string;
+  addLabel: string;
+  noChoices: ReactNode;
 }) {
   const choices = fields.filter(f => f.type === 'select' && (f.options?.length ?? 0) > 0);
-  const setRule = (i: number, p: Partial<RedirectRule>) =>
+  const setRule = (i: number, p: Partial<Rule>) =>
     onRules(rules.map((r, n) => (n === i ? { ...r, ...p } : r)));
   const firstOption = (f?: FormField) => (f?.options?.length ? optionParts(f.options[0]).value : '');
   const add = () => onRules([...rules, { field: choices[0]?.name ?? '', value: firstOption(choices[0]), url: '' }]);
@@ -1142,7 +1171,7 @@ function RedirectRules({ fields, rules, fallback, onRules, onFallback }: {
               <input
                 value={r.url}
                 onChange={(e) => setRule(i, { url: e.target.value })}
-                placeholder="/thank-you/…"
+                placeholder={placeholder}
                 className={RULE_URL}
               />
               <button
@@ -1167,13 +1196,32 @@ function RedirectRules({ fields, rules, fallback, onRules, onFallback }: {
           onClick={add}
           className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-500 transition hover:border-blue-300 hover:bg-blue-50/50 hover:text-blue-600"
         >
-          <Plus className="h-3.5 w-3.5" /> {rules.length ? 'Else if…' : 'Send some answers to a different page'}
+          <Plus className="h-3.5 w-3.5" /> {rules.length ? 'Else if…' : addLabel}
         </button>
       ) : (
-        <p className="text-[11px] leading-relaxed text-slate-500">
-          Add a <span className="font-semibold">Choice</span> field to send people to different pages by their answer.
-        </p>
+        <p className="text-[11px] leading-relaxed text-slate-500">{noChoices}</p>
       )}
+    </div>
+  );
+}
+
+function RedirectRules({ fields, rules, fallback, onRules, onFallback }: {
+  fields: FormField[];
+  rules: RedirectRule[];
+  fallback: string;
+  onRules: (rules: RedirectRule[]) => void;
+  onFallback: (url: string) => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <RuleRows
+        fields={fields}
+        rules={rules}
+        onRules={onRules}
+        placeholder="/thank-you/…"
+        addLabel="Send some answers to a different page"
+        noChoices={<>Add a <span className="font-semibold">Choice</span> field to send people to different pages by their answer.</>}
+      />
 
       <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3">
         <span className="w-12 flex-shrink-0 text-xs font-semibold text-slate-500">{rules.length ? 'Else' : 'Go to'}</span>
@@ -1190,6 +1238,40 @@ function RedirectRules({ fields, rules, fallback, onRules, onFallback }: {
         everyone the rules did not catch. Use a full address (<code className="rounded bg-white px-1 font-mono">https://killerbhq.com/thanks</code>)
         or a path on the same site (<code className="rounded bg-white px-1 font-mono">/thank-you/bjj</code>). Leave an address empty and those
         visitors stay on the page and read the thank-you message instead.
+      </p>
+    </div>
+  );
+}
+
+// The same rows, deciding which CRM receives the lead. "Else" is not a box here:
+// it is the webhook above, which is where every lead goes today.
+function WebhookRules({ fields, rules, fallback, onRules }: {
+  fields: FormField[];
+  rules: WebhookRule[];
+  fallback: string | null;
+  onRules: (rules: WebhookRule[]) => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <RuleRows
+        fields={fields}
+        rules={rules}
+        onRules={onRules}
+        placeholder="https://services.leadconnectorhq.com/hooks/…"
+        addLabel="Send some answers to a different CRM"
+        noChoices={<>Add a <span className="font-semibold">Choice</span> field to send some answers to a different CRM.</>}
+      />
+
+      <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3">
+        <span className="w-12 flex-shrink-0 text-xs font-semibold text-slate-500">{rules.length ? 'Else' : 'All go to'}</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-slate-500">
+          {fallback || 'no webhook set — leads go nowhere'}
+        </span>
+      </div>
+
+      <p className="text-[11px] leading-relaxed text-slate-500">
+        Checked top to bottom, first match wins. A lead no rule catches goes to the webhook above. Each lead is
+        posted to one address only, and our own copy is kept either way.
       </p>
     </div>
   );
@@ -1221,27 +1303,47 @@ function sampleData(fields: FormField[]) {
 function TestLead({ def }: { def: FormDef }) {
   const [state, setState] = useState<{ kind: 'idle' | 'sending' | 'ok' | 'bad'; text?: string }>({ kind: 'idle' });
 
+  // One test per destination this form can reach, each carrying the answer that
+  // sends it there — otherwise a rule's CRM is never the one being tested.
+  const runs = [
+    ...(def.webhook_rules ?? []).filter(r => r.url).map(r => ({
+      url: r.url,
+      what: `${r.field} = ${r.value}`,
+      data: { ...sampleData(def.fields), [r.field]: r.value },
+    })),
+    ...(def.ghl_webhook_url
+      ? [{ url: def.ghl_webhook_url, what: 'everyone else', data: sampleData(def.fields) }]
+      : []),
+  ];
+
   const send = async () => {
-    const url = def.ghl_webhook_url;
-    if (!url) return;
+    if (!runs.length) return;
     if (!window.GSF?.payload) {
       setState({ kind: 'bad', text: 'The form script has not loaded yet — try again in a second.' });
       return;
     }
     setState({ kind: 'sending' });
-    const payload = { ...window.GSF.payload(def, sampleData(def.fields), {}), _test: true };
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      setState(res.ok
-        ? { kind: 'ok', text: `GoHighLevel answered ${res.status}. Look for "Test Lead" in the CRM.` }
-        : { kind: 'bad', text: `GoHighLevel refused it — HTTP ${res.status}. Check the webhook is still live in the workflow.` });
-    } catch (e) {
-      setState({ kind: 'bad', text: `Could not reach it: ${e instanceof Error ? e.message : 'network error'}.` });
+    const said: string[] = [];
+    let bad = 0;
+    for (const run of runs) {
+      const payload = { ...window.GSF.payload(def, run.data, {}), _test: true };
+      try {
+        const res = await fetch(run.url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) bad += 1;
+        said.push(`${hostOf(run.url) ?? run.url} (${run.what}) answered ${res.status}`);
+      } catch (e) {
+        bad += 1;
+        said.push(`${hostOf(run.url) ?? run.url} (${run.what}) could not be reached: ${e instanceof Error ? e.message : 'network error'}`);
+      }
     }
+    setState({
+      kind: bad ? 'bad' : 'ok',
+      text: `${said.join('. ')}.${bad ? ' Check that webhook is still live in the workflow.' : ' Look for "Test Lead" in the CRM.'}`,
+    });
   };
 
   return (
@@ -1257,7 +1359,9 @@ function TestLead({ def }: { def: FormDef }) {
       <span className={`text-[11px] leading-relaxed ${
         state.kind === 'ok' ? 'text-emerald-700' : state.kind === 'bad' ? 'text-red-600' : 'text-slate-400'
       }`}>
-        {state.text ?? 'Posts one made-up submission — Test Lead, test-lead@groundstandard.com — with every field this form has, marked _test: true. CRM only; it never counts in our reporting.'}
+        {state.text ?? (runs.length > 1
+          ? `Posts one made-up submission to each of the ${runs.length} addresses this form can reach — Test Lead, test-lead@groundstandard.com — each carrying the answer that sends it there, marked _test: true. CRM only; it never counts in our reporting.`
+          : 'Posts one made-up submission — Test Lead, test-lead@groundstandard.com — with every field this form has, marked _test: true. CRM only; it never counts in our reporting.')}
       </span>
     </div>
   );
