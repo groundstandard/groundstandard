@@ -31,7 +31,14 @@
   // equivalent (filled inputs, floating labels, a card, a hover) is a modifier
   // class on the root and is inert until the class is there.
   var CSS = [
-    '.gsf{max-width:var(--gsf-mw,520px);font-family:var(--gsf-font,inherit);font-size:var(--gsf-fs,inherit);color:var(--gsf-text,inherit)}',
+    // Centred in whatever it is dropped into. A max width with no margin sits
+    // against the left edge of a wide section, which is what the hard-coded
+    // forms it replaced never did -- every one of them centred itself.
+    // Left-aligned whatever the section around it does. Dropped into a centred
+    // call-to-action block, the form inherited `text-align: center` and every
+    // label and consent paragraph centred itself -- a form reads down its left
+    // edge. The privacy line sets its own centring back where it wants it.
+    '.gsf{max-width:var(--gsf-mw,520px);margin-left:auto;margin-right:auto;text-align:left;font-family:var(--gsf-font,inherit);font-size:var(--gsf-fs,inherit);color:var(--gsf-text,inherit)}',
     '.gsf *{box-sizing:border-box}',
     '.gsf-row{margin-bottom:var(--gsf-gap,14px)}',
     '.gsf-label{display:block;margin-bottom:6px;font-size:var(--gsf-lbl-fs,13px);font-weight:var(--gsf-lbl-fw,600);color:var(--gsf-lbl-c,inherit);opacity:.85}',
@@ -39,7 +46,11 @@
     '.gsf-input,.gsf-select,.gsf-textarea{width:100%;padding:var(--gsf-in-py,11px) var(--gsf-in-px,13px);border:var(--gsf-bw,1px) solid var(--gsf-in-bc,rgba(128,128,128,.35));',
     'border-radius:var(--gsf-r,8px);font:inherit;background:var(--gsf-in-bg,transparent);color:var(--gsf-in-c,inherit);box-shadow:var(--gsf-in-sh,none);transition:var(--gsf-tr,none)}',
     '.gsf-input:focus,.gsf-select:focus,.gsf-textarea:focus{outline:var(--gsf-ring,2px solid var(--gsf-accent,currentColor));outline-offset:-1px;box-shadow:var(--gsf-ring-sh,var(--gsf-in-sh,none))}',
-    '.gsf-check{display:flex;gap:9px;align-items:flex-start;font-size:var(--gsf-lbl-fs,13px);line-height:1.45}',
+    // Consent wording is fine print and should read as it: the same size and
+    // weight as the privacy line under the button, not the loudest text in a
+    // form whose every other label is a muted placeholder. Muted, never faint
+    // -- it is the permission being given, so it stays comfortably legible.
+    '.gsf-check{display:flex;gap:9px;align-items:flex-start;font-size:12px;line-height:1.5;opacity:.8}',
     '.gsf-check input{margin-top:3px;flex-shrink:0;accent-color:var(--gsf-accent,auto)}',
     // font-family and friends are longhands on purpose: `font:600 15px/1 inherit`
     // is not valid CSS (inherit cannot sit inside a shorthand) and browsers
@@ -123,14 +134,28 @@
   // It goes in its own user_data object rather than among the event parameters,
   // because an email in a plain GA4 parameter breaks Google's own rules. GTM
   // hashes what it finds here before anything leaves the browser.
+  // A field can be called "First Name" or first_name or FIRST-NAME in the
+  // builder; to us it is the same field. Reads a value by that loose name.
+  function canon(key) {
+    return String(key == null ? '' : key).trim().toLowerCase().replace(/[\s-]+/g, '_');
+  }
+  function pick(data, key) {
+    if (!data) return undefined;
+    if (data[key] != null && data[key] !== '') return data[key];
+    for (var k in data) if (canon(k) === key && data[k] != null && data[k] !== '') return data[k];
+    return undefined;
+  }
+
   function userData(data) {
     var out = {};
-    if (data.email)      out.email_address = String(data.email).trim().toLowerCase();
-    if (data.phone)      out.phone_number = String(data.phone).replace(/[^0-9+]/g, '');
-    if (data.first_name) out.first_name = String(data.first_name).trim();
-    if (data.last_name)  out.last_name = String(data.last_name).trim();
-    if (!out.first_name && data.name) {
-      var parts = String(data.name).trim().split(/\s+/);
+    var email = pick(data, 'email'), phone = pick(data, 'phone');
+    var first = pick(data, 'first_name'), last = pick(data, 'last_name'), name = pick(data, 'name');
+    if (email) out.email_address = String(email).trim().toLowerCase();
+    if (phone) out.phone_number = String(phone).replace(/[^0-9+]/g, '');
+    if (first) out.first_name = String(first).trim();
+    if (last)  out.last_name = String(last).trim();
+    if (!out.first_name && name) {
+      var parts = String(name).trim().split(/\s+/);
       out.first_name = parts.shift() || '';
       if (parts.length) out.last_name = parts.join(' ');
     }
@@ -317,7 +342,7 @@
   // otherwise — a form that renders slightly plain is better than one that
   // throws because a type was misspelt.
   function field(f, theme) {
-    var id = 'gsf-' + f.name;
+    var id = 'gsf-' + String(f.name).replace(/[^A-Za-z0-9_-]+/g, '-');
     theme = theme || {};
 
     // A hidden field is a fixed value the visitor never sees and cannot change:
@@ -376,13 +401,42 @@
         class: 'gsf-input', name: f.name, id: id,
         type: f.type === 'phone' ? 'tel' : (f.type || 'text'),
         placeholder: ph,
-        autocomplete: ({ first_name: 'given-name', last_name: 'family-name', email: 'email', phone: 'tel' })[f.name] || 'on',
+        autocomplete: ({ first_name: 'given-name', last_name: 'family-name', email: 'email', phone: 'tel' })[canon(f.name)] || 'on',
       });
     }
     if (f.required) input.setAttribute('required', 'required');
     row.appendChild(input);
     if (labels === 'floating') row.appendChild(label);
     return row;
+  }
+
+  // One definition, many placements. The same form sits in the blog tail, in
+  // the footer and on the contact page, and a lead has to say which of them it
+  // came from -- "we also need to be able to name each of the forms, so that we
+  // can track the attribution" -- and they do not all thank the visitor on the
+  // same page. Two optional attributes on the mount override exactly that much
+  // and nothing else, so there is still one form to edit.
+  //
+  //   <div data-gs-form="killer-b-contact"
+  //        data-gs-source="website blog is jiu jitsu safe"
+  //        data-gs-thanks="/thank-you/trial"></div>
+  function placed(mount, def) {
+    var source = mount.getAttribute('data-gs-source');
+    var thanks = mount.getAttribute('data-gs-thanks');
+    if (!source && !thanks) return def;
+    var out = {};
+    for (var key in def) {
+      if (Object.prototype.hasOwnProperty.call(def, key)) out[key] = def[key];
+    }
+    if (source) out.name = source;
+    if (thanks) {
+      // This placement says where it goes, so a rule written for another one
+      // must not win over it.
+      out.redirect_enabled = true;
+      out.redirect_default = thanks;
+      out.redirect_rules = [];
+    }
+    return out;
   }
 
   function render(mount, def, opts) {
@@ -489,7 +543,7 @@
       _submitted_at: new Date().toISOString(),
     });
 
-    var whole = [data.first_name, data.last_name].filter(Boolean).join(' ').trim();
+    var whole = [pick(data, 'first_name'), pick(data, 'last_name')].filter(Boolean).join(' ').trim();
     if (whole && !payload.name) payload.name = whole;
     if (!payload.form_name) payload.form_name = def.name || def.slug;
     if (!payload.page_url) payload.page_url = location.href;
@@ -504,8 +558,8 @@
   function reportCopy(def, data, payload) {
     var who = userData(data);
     var copy = Object.assign({}, payload);
-    if (copy.firstName == null && (data.first_name || who.first_name)) copy.firstName = data.first_name || who.first_name;
-    if (copy.lastName == null && (data.last_name || who.last_name)) copy.lastName = data.last_name || who.last_name;
+    if (copy.firstName == null && who.first_name) copy.firstName = who.first_name;
+    if (copy.lastName == null && who.last_name) copy.lastName = who.last_name;
 
     var urls = [{
       url: def.ghl_webhook_url || '(not configured)',
@@ -619,8 +673,8 @@
       track('generate_lead', {
         form_name: def.name || def.slug,
         form: def.slug,
-        program: data.program,
-        interest: data.interest,
+        program: pick(data, 'program'),
+        interest: pick(data, 'interest'),
         utm_source: attr.utm_source,
         utm_medium: attr.utm_medium,
         utm_campaign: attr.utm_campaign,
@@ -641,7 +695,7 @@
         }
         if (!to) to = def.redirect_default || null;
         if (!to && !rules.length && !def.redirect_default) {
-          var program = (data.program || '').toLowerCase();
+          var program = String(pick(data, 'program') || '').toLowerCase();
           to = program.indexOf('youth') === 0 || program.indexOf('kid') === 0 ? def.redirect_youth : def.redirect_adult;
         }
       }
@@ -670,6 +724,100 @@
     box.appendChild(el('div', { class: 'gsf-bone gsf-bone-btn' }));
     mount.innerHTML = '';
     mount.appendChild(box);
+  }
+
+  // Some hosts render the page themselves after this script has drawn into it.
+  // React hydrating a Webstudio or Next page reconciles our mount against what
+  // it rendered -- an empty div -- and removes the form. On screen it appears
+  // for an instant and then the space is blank, which is exactly what it looks
+  // like when the script is broken.
+  //
+  // So watch the mount. If it is emptied by someone else, draw again. The guard
+  // is the form itself: redrawing replaces children and would otherwise trip
+  // the observer forever.
+  function mountOne(mount) {
+    if (!ANON) return;
+    var slug = mount.getAttribute('data-gs-form');
+
+    // Render what we saw last time first. On a repeat visit the form is there
+    // immediately; on a first visit there is a skeleton rather than a gap.
+    var known = remembered(slug);
+    if (known) keepDrawn(mount, function () { render(mount, placed(mount, known)); });
+    else keepDrawn(mount, function () { skeleton(mount); });
+
+    fetch(API + '/rest/v1/forms?slug=eq.' + encodeURIComponent(slug) + '&active=eq.true&select=*', {
+      headers: { apikey: ANON, Authorization: 'Bearer ' + ANON },
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (rows) {
+        if (!rows || !rows.length) {
+          // An unknown or paused form. If a remembered copy is on screen,
+          // leave it: a visitor mid-enquiry should not watch the form vanish.
+          if (!known) mount.textContent = 'Form "' + slug + '" was not found.';
+          return;
+        }
+
+        var fresh = rows[0];
+        remember(slug, fresh);
+
+        if (!known) { keepDrawn(mount, function () { render(mount, placed(mount, fresh)); }); return; }
+        if (JSON.stringify(fresh) === JSON.stringify(known)) return;
+
+        // It changed. Redraw only if nobody has started filling it in --
+        // replacing a form under someone's hands would throw away their typing.
+        if (touched(mount)) return;
+        keepDrawn(mount, function () { render(mount, placed(mount, fresh)); });
+      })
+      .catch(function () {
+        if (!known) mount.textContent = 'This form could not be loaded.';
+      });
+  }
+
+  // Watching one element is not enough. A host that hydrates the page can
+  // replace the mount itself rather than empty it, and then the element we were
+  // watching is an orphan and the new one on the page has never been drawn
+  // into. So watch the page: after anything changes, any mount without a form
+  // in it gets drawn. Reading the definition again is free -- the last copy is
+  // remembered, so the form is back in the same frame.
+  function watchPage() {
+    if (!window.MutationObserver || window.__gsfWatchingPage) return;
+    window.__gsfWatchingPage = true;
+    var pending = false;
+    var watcher = new MutationObserver(function () {
+      if (pending) return;
+      pending = true;
+      // Hydration fires hundreds of records; do the work once after it settles.
+      window.setTimeout(function () {
+        pending = false;
+        var all = document.querySelectorAll('[data-gs-form]');
+        for (var i = 0; i < all.length; i += 1) {
+          var mount = all[i];
+          if (mount.querySelector('form') || mount.querySelector('.gsf-skeleton')) continue;
+          if (touched(mount)) continue;
+          mountOne(mount);
+        }
+      }, 60);
+    });
+    watcher.observe(document.body, { childList: true, subtree: true });
+  }
+
+  function keepDrawn(mount, draw) {
+    // Always the latest drawing, not the one the observer was created with:
+    // the first is a skeleton or a remembered copy, and putting that back after
+    // the real one had arrived would quietly serve a stale form.
+    mount.__gsfDraw = draw;
+    draw();
+    if (!window.MutationObserver) return;
+    if (mount.__gsfWatched) return;
+    mount.__gsfWatched = true;
+    var watcher = new MutationObserver(function () {
+      if (mount.querySelector('form') || mount.querySelector('.gsf-skeleton')) return;
+      // Never redraw over someone who is filling it in; the only way the mount
+      // is empty and touched at once is a race we would rather lose quietly.
+      if (touched(mount)) return;
+      mount.__gsfDraw();
+    });
+    watcher.observe(mount, { childList: true });
   }
 
   function touched(mount) {
@@ -708,42 +856,8 @@
     }
 
     warmUp();
-
-    mounts.forEach(function (mount) {
-      var slug = mount.getAttribute('data-gs-form');
-
-      // Render what we saw last time first. On a repeat visit the form is there
-      // immediately; on a first visit there is a skeleton rather than a gap.
-      var known = remembered(slug);
-      if (known) render(mount, known); else skeleton(mount);
-
-      fetch(API + '/rest/v1/forms?slug=eq.' + encodeURIComponent(slug) + '&active=eq.true&select=*', {
-        headers: { apikey: ANON, Authorization: 'Bearer ' + ANON },
-      })
-        .then(function (r) { return r.json(); })
-        .then(function (rows) {
-          if (!rows || !rows.length) {
-            // An unknown or paused form. If a remembered copy is on screen,
-            // leave it: a visitor mid-enquiry should not watch the form vanish.
-            if (!known) mount.textContent = 'Form "' + slug + '" was not found.';
-            return;
-          }
-
-          var fresh = rows[0];
-          remember(slug, fresh);
-
-          if (!known) { render(mount, fresh); return; }
-          if (JSON.stringify(fresh) === JSON.stringify(known)) return;
-
-          // It changed. Redraw only if nobody has started filling it in —
-          // replacing a form under someone's hands would throw away their typing.
-          if (touched(mount)) return;
-          render(mount, fresh);
-        })
-        .catch(function () {
-          if (!known) mount.textContent = 'This form could not be loaded.';
-        });
-    });
+    mounts.forEach(mountOne);
+    watchPage();
   }
 
   // The builder's preview draws with this same function, so the form on that

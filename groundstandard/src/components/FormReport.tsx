@@ -131,9 +131,10 @@ const newest = (rows: SubmissionRow[]) =>
 // outage: submissions still happening somewhere, nothing arriving here.
 const STALE_DAYS = 14;
 
-const PERSON = new Set(['first_name', 'last_name', 'firstName', 'lastName', 'name', 'email', 'phone']);
+const PERSON = new Set(['first_name', 'last_name', 'firstname', 'lastname', 'name', 'email', 'phone']);
+const canonKey = (s: string) => s.trim().toLowerCase().replace(/[\s-]+/g, '_');
 const answersOf = (r: SubmissionRow) =>
-  Object.entries(r.answers ?? {}).filter(([k, v]) => !PERSON.has(k) && v !== '' && v !== null && v !== undefined);
+  Object.entries(r.answers ?? {}).filter(([k, v]) => !PERSON.has(canonKey(k)) && v !== '' && v !== null && v !== undefined);
 const showValue = (v: unknown) => (v === true ? 'Yes' : v === false ? 'No' : typeof v === 'object' ? JSON.stringify(v) : String(v));
 const answerLine = (r: SubmissionRow) => answersOf(r).map(([k, v]) => `${k}: ${showValue(v)}`).join(' · ');
 

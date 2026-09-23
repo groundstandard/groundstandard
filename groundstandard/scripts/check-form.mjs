@@ -729,6 +729,36 @@ console.log('\nwhere they go afterwards — rules:');
   is('the old adult/youth pair still decides when no rules are set', legacy.nav.to, 'https://example.com/youth');
 }
 
+console.log('\nfields named the way a person would name them:');
+{
+  const spaced = { ...DEF, fields: [
+    { name: 'First Name', label: 'First name', type: 'text', required: true },
+    { name: 'Last Name', label: 'Last name', type: 'text', required: true },
+    { name: 'Email', label: 'Email', type: 'email', required: true },
+    { name: 'Phone', label: 'Phone', type: 'phone', required: false },
+    { name: 'Program', label: 'Which program?', type: 'select', required: true, options: ['Adult', 'Youth'] },
+    { name: 'consent', label: 'I agree.', type: 'checkbox', required: true },
+  ] };
+  const { window, doc, calls, nav } = await mount({ definition: spaced });
+  const form = doc.querySelector('form.gsf');
+  [...form.querySelectorAll('input, select')].every(el => !/\s/.test(el.id))
+    ? ok('ids carry no spaces') : bad('ids carry no spaces', [...form.querySelectorAll('input')].map(e => e.id).join(' | '));
+  [...form.querySelectorAll('label.gsf-label')].every(l => doc.getElementById(l.getAttribute('for')))
+    ? ok('  and every label still points at its input') : bad('  and every label still points at its input', 'a for= misses');
+  is('  the first-name box autocompletes as a given name', form.elements['First Name'].getAttribute('autocomplete'), 'given-name');
+
+  fill(form, { 'First Name': 'Marco', 'Last Name': 'Alvarez', Email: 'marco@example.com', Phone: '555 0100', Program: 'Youth', consent: true });
+  await submit(form, window);
+  const crm = calls.find(c => c.url.includes('leadconnectorhq')).body;
+  is('the CRM receives the names as typed in the builder', crm['First Name'], 'Marco');
+  is('  and still gets a whole name', crm.name, 'Marco Alvarez');
+  is('  the report copy still has the old camelCase pair', calls.find(c => c.url.includes('railway.app')).body.firstName, 'Marco');
+  const lead = window.dataLayer.find(e => e.event === 'generate_lead');
+  is('  the conversion tags still see the email', lead.user_data.email_address, 'marco@example.com');
+  is('  and the programme', lead.program, 'Youth');
+  is('  and the old youth redirect still recognises Program', nav.to, 'https://example.com/youth');
+}
+
 console.log('\na test lead from the builder is shaped like a real one:');
 {
   const { window, doc, calls } = await mount();

@@ -102,6 +102,11 @@ const blank = (): FormDef => ({
 const slugify = (s: string) =>
   s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
+// "First Name", first_name and FIRST-NAME are one field as far as the embed,
+// the CRM workflow and the reporting are concerned. Uniqueness is judged on
+// this, and so is recognising the standard person fields.
+const canonKey = (s: string) => s.trim().toLowerCase().replace(/[\s-]+/g, '_');
+
 const FIELD_TYPES: { value: FieldType; label: string; icon: typeof Type }[] = [
   { value: 'text', label: 'Text', icon: Type },
   { value: 'email', label: 'Email', icon: AtSign },
@@ -172,8 +177,10 @@ export default function FormBuilder({ onBackToLaunch }: { onBackToLaunch?: () =>
       if (!slug) throw new Error('Give the form a name first.');
       if (!editing.fields.length) throw new Error('A form with no fields cannot be submitted.');
 
-      const dup = editing.fields.map(f => f.name).filter((n, i, a) => a.indexOf(n) !== i);
-      if (dup.length) throw new Error(`Two fields are both called "${dup[0]}". Names have to be unique.`);
+      const keys = editing.fields.map(f => canonKey(f.name));
+      const dupAt = keys.findIndex((k, i) => keys.indexOf(k) !== i);
+      if (dupAt !== -1) throw new Error(`Two fields are both called "${editing.fields[dupAt].name}". Names have to be unique.`);
+      if (editing.fields.some(f => !canonKey(f.name))) throw new Error('Every field needs a name.');
 
       const row = { ...editing, slug };
       const { data, error: err } = editing.id
@@ -360,6 +367,7 @@ export default function FormBuilder({ onBackToLaunch }: { onBackToLaunch?: () =>
                       index={i}
                       count={editing.fields.length}
                       field={f}
+                      duplicate={editing.fields.some((o, n) => n !== i && canonKey(o.name) === canonKey(f.name))}
                       onChange={(p) => setField(i, p)}
                       onMoveTo={(to) => reorder(i, to)}
                       onDropFrom={(from) => reorder(from, i)}
@@ -660,10 +668,11 @@ function FormList({ forms, leads, onNew, onOpen }: {
 
 const parseOptions = (raw: string) => raw.split(',').map(s => s.trim()).filter(Boolean);
 
-function FieldRow({ field, index, count, onChange, onMoveTo, onDropFrom, onRemove }: {
+function FieldRow({ field, index, count, duplicate, onChange, onMoveTo, onDropFrom, onRemove }: {
   field: FormField;
   index: number;
   count: number;
+  duplicate: boolean;
   onChange: (p: Partial<FormField>) => void;
   onMoveTo: (to: number) => void;
   onDropFrom: (from: number) => void;
@@ -754,13 +763,22 @@ function FieldRow({ field, index, count, onChange, onMoveTo, onDropFrom, onRemov
           <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" />
         </div>
 
-        <input
-          value={field.name}
-          onChange={(e) => onChange({ name: e.target.value.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase() })}
-          className="w-36 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-mono text-[11px] text-slate-500 outline-none transition focus:border-blue-400"
-          placeholder="field_name"
-          title="What GoHighLevel receives this as"
-        />
+        <div className="relative">
+          <input
+            value={field.name}
+            onChange={(e) => onChange({ name: e.target.value.replace(/[^A-Za-z0-9 _-]/g, '').replace(/ {2,}/g, ' ') })}
+            className={`w-36 rounded-lg border bg-white px-2.5 py-1.5 font-mono text-[11px] outline-none transition focus:border-blue-400 ${
+              duplicate ? 'border-red-300 text-red-700 ring-2 ring-red-100' : 'border-slate-200 text-slate-500'
+            }`}
+            placeholder="Field name"
+            title={duplicate
+              ? 'Another field already has this name. Names have to be unique on a form.'
+              : 'What GoHighLevel receives this as. Spaces and capitals are fine: "First Name" and first_name are the same field.'}
+          />
+          {duplicate && (
+            <span className="pointer-events-none absolute -bottom-4 left-0 whitespace-nowrap text-[10px] font-medium text-red-600">already used</span>
+          )}
+        </div>
 
         {field.type !== 'hidden' && (
           <button
@@ -1194,7 +1212,7 @@ function sampleData(fields: FormField[]) {
       case 'select':   data[f.name] = f.options?.length ? optionParts(f.options[0]).value : ''; break;
       case 'textarea': data[f.name] = 'Test submission from the Custom Form Builder — safe to delete.'; break;
       default:
-        data[f.name] = f.name === 'first_name' ? 'Test' : f.name === 'last_name' ? 'Lead' : f.name === 'name' ? 'Test Lead' : 'Test';
+        data[f.name] = canonKey(f.name) === 'first_name' ? 'Test' : canonKey(f.name) === 'last_name' ? 'Lead' : canonKey(f.name) === 'name' ? 'Test Lead' : 'Test';
     }
   }
   return data;

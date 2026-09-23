@@ -134,14 +134,28 @@
   // It goes in its own user_data object rather than among the event parameters,
   // because an email in a plain GA4 parameter breaks Google's own rules. GTM
   // hashes what it finds here before anything leaves the browser.
+  // A field can be called "First Name" or first_name or FIRST-NAME in the
+  // builder; to us it is the same field. Reads a value by that loose name.
+  function canon(key) {
+    return String(key == null ? '' : key).trim().toLowerCase().replace(/[\s-]+/g, '_');
+  }
+  function pick(data, key) {
+    if (!data) return undefined;
+    if (data[key] != null && data[key] !== '') return data[key];
+    for (var k in data) if (canon(k) === key && data[k] != null && data[k] !== '') return data[k];
+    return undefined;
+  }
+
   function userData(data) {
     var out = {};
-    if (data.email)      out.email_address = String(data.email).trim().toLowerCase();
-    if (data.phone)      out.phone_number = String(data.phone).replace(/[^0-9+]/g, '');
-    if (data.first_name) out.first_name = String(data.first_name).trim();
-    if (data.last_name)  out.last_name = String(data.last_name).trim();
-    if (!out.first_name && data.name) {
-      var parts = String(data.name).trim().split(/\s+/);
+    var email = pick(data, 'email'), phone = pick(data, 'phone');
+    var first = pick(data, 'first_name'), last = pick(data, 'last_name'), name = pick(data, 'name');
+    if (email) out.email_address = String(email).trim().toLowerCase();
+    if (phone) out.phone_number = String(phone).replace(/[^0-9+]/g, '');
+    if (first) out.first_name = String(first).trim();
+    if (last)  out.last_name = String(last).trim();
+    if (!out.first_name && name) {
+      var parts = String(name).trim().split(/\s+/);
       out.first_name = parts.shift() || '';
       if (parts.length) out.last_name = parts.join(' ');
     }
@@ -328,7 +342,7 @@
   // otherwise — a form that renders slightly plain is better than one that
   // throws because a type was misspelt.
   function field(f, theme) {
-    var id = 'gsf-' + f.name;
+    var id = 'gsf-' + String(f.name).replace(/[^A-Za-z0-9_-]+/g, '-');
     theme = theme || {};
 
     // A hidden field is a fixed value the visitor never sees and cannot change:
@@ -387,7 +401,7 @@
         class: 'gsf-input', name: f.name, id: id,
         type: f.type === 'phone' ? 'tel' : (f.type || 'text'),
         placeholder: ph,
-        autocomplete: ({ first_name: 'given-name', last_name: 'family-name', email: 'email', phone: 'tel' })[f.name] || 'on',
+        autocomplete: ({ first_name: 'given-name', last_name: 'family-name', email: 'email', phone: 'tel' })[canon(f.name)] || 'on',
       });
     }
     if (f.required) input.setAttribute('required', 'required');
@@ -529,7 +543,7 @@
       _submitted_at: new Date().toISOString(),
     });
 
-    var whole = [data.first_name, data.last_name].filter(Boolean).join(' ').trim();
+    var whole = [pick(data, 'first_name'), pick(data, 'last_name')].filter(Boolean).join(' ').trim();
     if (whole && !payload.name) payload.name = whole;
     if (!payload.form_name) payload.form_name = def.name || def.slug;
     if (!payload.page_url) payload.page_url = location.href;
@@ -544,8 +558,8 @@
   function reportCopy(def, data, payload) {
     var who = userData(data);
     var copy = Object.assign({}, payload);
-    if (copy.firstName == null && (data.first_name || who.first_name)) copy.firstName = data.first_name || who.first_name;
-    if (copy.lastName == null && (data.last_name || who.last_name)) copy.lastName = data.last_name || who.last_name;
+    if (copy.firstName == null && who.first_name) copy.firstName = who.first_name;
+    if (copy.lastName == null && who.last_name) copy.lastName = who.last_name;
 
     var urls = [{
       url: def.ghl_webhook_url || '(not configured)',
@@ -659,8 +673,8 @@
       track('generate_lead', {
         form_name: def.name || def.slug,
         form: def.slug,
-        program: data.program,
-        interest: data.interest,
+        program: pick(data, 'program'),
+        interest: pick(data, 'interest'),
         utm_source: attr.utm_source,
         utm_medium: attr.utm_medium,
         utm_campaign: attr.utm_campaign,
@@ -681,7 +695,7 @@
         }
         if (!to) to = def.redirect_default || null;
         if (!to && !rules.length && !def.redirect_default) {
-          var program = (data.program || '').toLowerCase();
+          var program = String(pick(data, 'program') || '').toLowerCase();
           to = program.indexOf('youth') === 0 || program.indexOf('kid') === 0 ? def.redirect_youth : def.redirect_adult;
         }
       }
