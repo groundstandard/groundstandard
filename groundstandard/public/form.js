@@ -34,7 +34,11 @@
     // Centred in whatever it is dropped into. A max width with no margin sits
     // against the left edge of a wide section, which is what the hard-coded
     // forms it replaced never did -- every one of them centred itself.
-    '.gsf{max-width:var(--gsf-mw,520px);margin-left:auto;margin-right:auto;font-family:var(--gsf-font,inherit);font-size:var(--gsf-fs,inherit);color:var(--gsf-text,inherit)}',
+    // Left-aligned whatever the section around it does. Dropped into a centred
+    // call-to-action block, the form inherited `text-align: center` and every
+    // label and consent paragraph centred itself -- a form reads down its left
+    // edge. The privacy line sets its own centring back where it wants it.
+    '.gsf{max-width:var(--gsf-mw,520px);margin-left:auto;margin-right:auto;text-align:left;font-family:var(--gsf-font,inherit);font-size:var(--gsf-fs,inherit);color:var(--gsf-text,inherit)}',
     '.gsf *{box-sizing:border-box}',
     '.gsf-row{margin-bottom:var(--gsf-gap,14px)}',
     '.gsf-label{display:block;margin-bottom:6px;font-size:var(--gsf-lbl-fs,13px);font-weight:var(--gsf-lbl-fw,600);color:var(--gsf-lbl-c,inherit);opacity:.85}',
