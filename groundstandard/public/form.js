@@ -42,7 +42,11 @@
     '.gsf-input,.gsf-select,.gsf-textarea{width:100%;padding:var(--gsf-in-py,11px) var(--gsf-in-px,13px);border:var(--gsf-bw,1px) solid var(--gsf-in-bc,rgba(128,128,128,.35));',
     'border-radius:var(--gsf-r,8px);font:inherit;background:var(--gsf-in-bg,transparent);color:var(--gsf-in-c,inherit);box-shadow:var(--gsf-in-sh,none);transition:var(--gsf-tr,none)}',
     '.gsf-input:focus,.gsf-select:focus,.gsf-textarea:focus{outline:var(--gsf-ring,2px solid var(--gsf-accent,currentColor));outline-offset:-1px;box-shadow:var(--gsf-ring-sh,var(--gsf-in-sh,none))}',
-    '.gsf-check{display:flex;gap:9px;align-items:flex-start;font-size:var(--gsf-lbl-fs,13px);line-height:1.45}',
+    // Consent wording is fine print and should read as it: the same size and
+    // weight as the privacy line under the button, not the loudest text in a
+    // form whose every other label is a muted placeholder. Muted, never faint
+    // -- it is the permission being given, so it stays comfortably legible.
+    '.gsf-check{display:flex;gap:9px;align-items:flex-start;font-size:12px;line-height:1.5;opacity:.8}',
     '.gsf-check input{margin-top:3px;flex-shrink:0;accent-color:var(--gsf-accent,auto)}',
     // font-family and friends are longhands on purpose: `font:600 15px/1 inherit`
     // is not valid CSS (inherit cannot sit inside a shorthand) and browsers

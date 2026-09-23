@@ -43,13 +43,15 @@ await new Promise((r) => setTimeout(r, 300));
 const form = window.document.querySelector('form');
 if (!form) { console.error('the embed drew nothing'); process.exit(1); }
 
-// What the site's own /contact form has, read off the published page earlier.
+// The form the client settled on: "it's the same exact fields on the form you
+// already made on Duda". No message box there, and two opt-in tickboxes under
+// the choices, which are asserted separately below.
 const SITE = [
   ['first_name', 'First Name', true, 'half'],
-  ['last_name', 'Last Name', true, 'half'],
+  // "These are not required. Phone number... Last name's not required."
+  ['last_name', 'Last Name', false, 'half'],
   ['email', 'Email Address', true, 'half'],
-  ['phone', 'Phone Number', true, 'half'],
-  ['message', 'Anything you want us to know?', false, 'full'],
+  ['phone', 'Phone Number', false, 'half'],
   ['audience', 'Select a program', true, 'full'],
   ['focus', 'Select an interest', true, 'full'],
 ];
@@ -87,6 +89,21 @@ check('privacy and terms are on the form',
 for (const hidden of ['source', 'site_id']) {
   check(`${hidden} rides along unseen`, form.elements[hidden] && form.elements[hidden].type === 'hidden',
     form.elements[hidden] ? form.elements[hidden].value : 'missing');
+}
+
+// The consents. Wording is the gym's legal footing for texting somebody, so it
+// is checked for length and for the phrases a carrier looks for, not eyeballed.
+for (const [name, word] of [['sms_transactional', 'transactional'], ['sms_marketing', 'marketing']]) {
+  const box = form.elements[name];
+  if (!box) { check(`${name} tickbox`, false, 'not drawn'); continue; }
+  const text = (box.closest('label') || box.parentElement).textContent.trim();
+  const problems = [];
+  if (box.type !== 'checkbox') problems.push(`is a ${box.type}`);
+  if (box.required) problems.push('is required — a forced consent is not consent');
+  if (!text.includes(word)) problems.push(`wording does not mention ${word}`);
+  if (!/Reply STOP to opt out/.test(text)) problems.push('missing the STOP line');
+  if (!/Text HELP for assistance/.test(text)) problems.push('missing the HELP line');
+  check(`${name} tickbox`, !problems.length, problems.join('; ') || `${text.length} chars, optional`);
 }
 
 check('the old interest dropdown is gone', !form.elements.interest,
