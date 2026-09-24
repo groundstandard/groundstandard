@@ -786,14 +786,50 @@
   // So watch the mount. If it is emptied by someone else, draw again. The guard
   // is the form itself: redrawing replaces children and would otherwise trip
   // the observer forever.
+  // How much room the form took last time, so that nothing underneath it moves
+  // while it is being fetched and drawn.
+  //
+  // The script is fetched, the definition is fetched, and then the host's own
+  // framework can hydrate the page and empty the mount, which is drawn into
+  // again. Measured on a live page: the mount was empty for two seconds, then
+  // 341px of skeleton, then 552px of form, and the footer dropped 552px in two
+  // visible steps. From a chair that reads as the footer jumping on every load.
+  //
+  // The floor is the height actually measured, so it is invisible when the form
+  // is there, and it holds the space through every one of those steps. Keyed by
+  // wide or narrow because the fields stack below 480px.
+  function sizeKey(slug) {
+    return 'gsf_h_' + slug + '_' + (window.innerWidth <= 480 ? 's' : 'l');
+  }
+
+  function holdSpace(mount, slug) {
+    try {
+      var was = parseInt(localStorage.getItem(sizeKey(slug)) || '', 10);
+      if (was > 40) mount.style.minHeight = was + 'px';
+    } catch (err) { /* private window, or storage is off */ }
+  }
+
+  // Measure the form itself rather than the mount, so the floor we are holding
+  // is never what gets measured, and a form that loses a field shrinks properly
+  // the next time instead of leaving a gap under it for good.
+  function settle(mount, slug) {
+    var box = mount.firstElementChild;
+    if (!box) return;
+    var h = Math.round(box.getBoundingClientRect().height);
+    if (h <= 40) return;
+    mount.style.minHeight = h + 'px';
+    try { localStorage.setItem(sizeKey(slug), String(h)); } catch (err) { /* nothing kept */ }
+  }
+
   function mountOne(mount) {
     if (!ANON) return;
     var slug = mount.getAttribute('data-gs-form');
+    holdSpace(mount, slug);
 
     // Render what we saw last time first. On a repeat visit the form is there
     // immediately; on a first visit there is a skeleton rather than a gap.
     var known = remembered(slug);
-    if (known) keepDrawn(mount, function () { render(mount, placed(mount, known)); });
+    if (known) keepDrawn(mount, function () { render(mount, placed(mount, known)); settle(mount, slug); });
     else keepDrawn(mount, function () { skeleton(mount); });
 
     fetch(API + '/rest/v1/forms?slug=eq.' + encodeURIComponent(slug) + '&active=eq.true&select=*', {
@@ -811,13 +847,16 @@
         var fresh = rows[0];
         remember(slug, fresh);
 
-        if (!known) { keepDrawn(mount, function () { render(mount, placed(mount, fresh)); }); return; }
+        if (!known) {
+          keepDrawn(mount, function () { render(mount, placed(mount, fresh)); settle(mount, slug); });
+          return;
+        }
         if (JSON.stringify(fresh) === JSON.stringify(known)) return;
 
         // It changed. Redraw only if nobody has started filling it in --
         // replacing a form under someone's hands would throw away their typing.
         if (touched(mount)) return;
-        keepDrawn(mount, function () { render(mount, placed(mount, fresh)); });
+        keepDrawn(mount, function () { render(mount, placed(mount, fresh)); settle(mount, slug); });
       })
       .catch(function () {
         if (!known) mount.textContent = 'This form could not be loaded.';
