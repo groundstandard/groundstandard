@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback, useRef, type FormEvent } from 'react';
-import { Search, FileText, Clock, CheckCircle, RefreshCw, AlertCircle, X, Send, Plus, Filter, Eye, Edit3, Loader2, Sparkles, ArrowUp, Trash, UserCircle, LogOut, ArrowLeft } from 'lucide-react';
+import { Search, FileText, Clock, CheckCircle, RefreshCw, AlertCircle, X, Send, Plus, Filter, Eye, Edit3, Loader2, Sparkles, ArrowUp, Trash, UserCircle, LogOut, ArrowLeft, Users } from 'lucide-react';
 import ChatWidget from './ChatWidget';
 import { useResearchData } from '../hooks/useResearchData';
 import type { ResearchArticle } from '../lib/supabase';
@@ -12,13 +12,17 @@ type DashboardProps = {
 export default function Dashboard({ onBackToLaunch }: DashboardProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  // Made by: 'all', 'unknown', or a user id. Bobby, 8 October: whoever made an
+  // article should be able to tell at a glance which ones are theirs.
+  const [createdBy, setCreatedBy] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const { articles, totalCount, loading, error, refetch } = useResearchData({
     page: currentPage,
     pageSize: itemsPerPage,
     searchTerm,
-    statusFilter
+    statusFilter,
+    createdBy
   });
   const [selectedIds, setSelectedIds] = useState<Set<number | string>>(new Set());
 //fdsafa
@@ -52,6 +56,58 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
     document.addEventListener('mousedown', onDocMouseDown);
     return () => document.removeEventListener('mousedown', onDocMouseDown);
   }, [statusDropdownOpen]);
+  // Who is signed in, so their own articles read "by you", and everyone who has
+  // generated articles, for the Made by filter. creators stays null until the
+  // database has the functions behind the filter, and the filter stays hidden
+  // until then rather than showing and failing.
+  const [me, setMe] = useState<{ id: string; name: string } | null>(null);
+  const [creators, setCreators] = useState<Array<{ created_by: string | null; created_by_name: string | null }> | null>(null);
+  const creatorDropdownRef = useRef<HTMLDivElement | null>(null);
+  const [creatorDropdownOpen, setCreatorDropdownOpen] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      const user = auth?.user;
+      if (!user) return;
+      let name = '';
+      try {
+        const { data } = await supabase.rpc('rpc_profile_get');
+        const row = Array.isArray(data) ? data[0] : null;
+        name = String(row?.full_name ?? '').trim();
+      } catch { /* the email will do */ }
+      if (alive) setMe({ id: user.id, name: name || user.email || 'You' });
+    })();
+    return () => { alive = false; };
+  }, []);
+  const loadCreators = useCallback(async () => {
+    const { data, error: rpcError } = await supabase.rpc('rpc_research_creators');
+    if (rpcError) { setCreators(null); return; }
+    setCreators(Array.isArray(data) ? data : []);
+  }, []);
+  // A person's first article puts them in the list, and totalCount moves when it lands.
+  useEffect(() => { void loadCreators(); }, [loadCreators, totalCount]);
+  useEffect(() => {
+    if (!creatorDropdownOpen) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      const el = creatorDropdownRef.current;
+      const target = e.target as Node | null;
+      if (!el || !target) return;
+      if (!el.contains(target)) setCreatorDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, [creatorDropdownOpen]);
+  const creatorOptions = useMemo(() => {
+    const opts: Array<{ value: string; label: string }> = [{ value: 'all', label: 'Everyone' }];
+    if (me) opts.push({ value: me.id, label: 'Mine' });
+    for (const c of creators ?? []) {
+      if (!c.created_by || c.created_by === me?.id) continue;
+      opts.push({ value: c.created_by, label: c.created_by_name || 'Someone' });
+    }
+    if ((creators ?? []).some(c => !c.created_by)) opts.push({ value: 'unknown', label: 'Unknown (older)' });
+    return opts;
+  }, [creators, me]);
   // Modal state for sending a Keyword to webhook
   const [showAddModal, setShowAddModal] = useState(false);
   const [keywordInput, setKeywordInput] = useState('');
@@ -957,6 +1013,30 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
     if (next.size !== generalizingIds.size) setGeneralizingIds(next);
   }, [articles, generalizingIds, generalizingMeta]);
 
+  // Who asked for these articles, filed just before n8n is asked to make them.
+  // The database matches each new row to the oldest open claim for its keyword
+  // and stamps the row with that person. Returns the claim's id so a failed
+  // request can withdraw it, or null if it could not be filed in time — then
+  // the rows simply say Unknown. The article itself is never held up for it.
+  const claimArticles = async (keyword: string, count: number): Promise<number | null> => {
+    try {
+      const call = supabase
+        .rpc('rpc_research_claim', { p_keyword: keyword, p_count: count, p_name: me?.name ?? null })
+        .then(({ data, error: rpcError }) => (rpcError || typeof data !== 'number' ? null : data));
+      const timeout = new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 2000));
+      return await Promise.race([call, timeout]);
+    } catch {
+      return null;
+    }
+  };
+
+  // A request that failed will not produce its rows. Left open, its claim could
+  // hand someone's later article with the same keyword to this person.
+  const cancelClaim = (id: number | null) => {
+    if (id == null) return;
+    void supabase.rpc('rpc_research_claim_cancel', { p_id: id }).then(() => undefined, () => undefined);
+  };
+
   // Send keyword request directly to the provided webhook
   const handleSendKeyword = async (e: FormEvent) => {
     e.preventDefault();
@@ -989,6 +1069,7 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
     setOptimisticRows(prev => [...newTemps, ...prev]);
     // Close modal so the user can add another immediately while this one processes
     setShowAddModal(false);
+    const claimId = await claimArticles(kw, count);
     try {
       const resp = await fetch('/api/research', {
         method: 'POST',
@@ -1074,6 +1155,7 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
       setCallToAction('');
       // No Supabase placeholder insert; we rely solely on n8n to persist rows
     } catch (err) {
+      cancelClaim(claimId);
       // If webhook failed due to balance/capacity, show warning, revert optimistic rows, and reopen Create modal
       const msg = err instanceof Error ? err.message : String(err || '');
       const m = msg.toLowerCase();
@@ -1429,12 +1511,16 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
         article.keyword.toLowerCase().includes(loweredSearch) ||
         (article.business_name ?? '').toLowerCase().includes(loweredSearch);
       const matchesStatus = statusFilter === 'all' || article.status === statusFilter;
-      return matchesSearch && matchesStatus;
+      const matchesCreator = createdBy === 'all'
+        || (createdBy === 'unknown' ? !article.created_by : article.created_by === createdBy);
+      return matchesSearch && matchesStatus && matchesCreator;
     });
     // Add writing placeholders that aren't present in real articles
-    // Only include the most recent active writing placeholder to avoid duplicates
+    // Only include the most recent active writing placeholder to avoid duplicates.
+    // A placeholder stands in for a row missing from this page, and under a Made
+    // by filter it may be someone else's, so it only shows in the unfiltered feed.
     const keysByRecent = Array.from(writingIds).sort((a, b) => (writingMeta[b]?.startedAt || 0) - (writingMeta[a]?.startedAt || 0));
-    const activeKeys = keysByRecent.length > 0 ? [keysByRecent[0]] : [];
+    const activeKeys = createdBy === 'all' && keysByRecent.length > 0 ? [keysByRecent[0]] : [];
     const placeholdersFromWriting: Array<ResearchArticle & { _temp?: false; createdTs?: number }> = [];
     for (const key of activeKeys) {
       const meta = writingMeta[key];
@@ -1452,12 +1538,14 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
         } as unknown as ResearchArticle);
       }
     }
-    // Add optimistic rows that match the filters
+    // Add optimistic rows that match the filters. They are this person's own
+    // requests, so they belong in Everyone and in Mine, and nowhere else.
+    const ownRequests = createdBy === 'all' || (!!me && createdBy === me.id);
     const optimistic = optimisticRows.filter(row => {
       const matchesSearch = row.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                            row.keyword.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesStatus = statusFilter === 'all' || row.status === statusFilter;
-      return matchesSearch && matchesStatus;
+      return ownRequests && matchesSearch && matchesStatus;
     });
     // Merge and sort: optimistic placeholders (newest first), then real by id desc
     type ViewArticle = (ResearchArticle & { _temp?: false; createdTs?: number }) | OptimisticArticle;
@@ -1473,13 +1561,13 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
       return bId - aId; // newest first
     });
     return combined;
-  }, [articles, searchTerm, statusFilter, optimisticRows, writingIds, writingMeta]);
+  }, [articles, searchTerm, statusFilter, createdBy, me, optimisticRows, writingIds, writingMeta]);
 
   // Page does not auto-jump; user controls pagination
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter]);
+  }, [searchTerm, statusFilter, createdBy]);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / itemsPerPage));
   const startIndex = (currentPage - 1) * itemsPerPage;
@@ -2939,6 +3027,58 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
                       </div>
                     )}
                   </div>
+                  {creators !== null && (
+                    <div ref={creatorDropdownRef} className="relative group">
+                      <div className="absolute inset-0 bg-gradient-to-r from-blue-600/20 to-red-600/20 rounded-xl blur opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                      <button
+                        type="button"
+                        onClick={() => setCreatorDropdownOpen(v => !v)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') setCreatorDropdownOpen(false);
+                        }}
+                        className="relative w-full inline-flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-gray-50 to-blue-50/50 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition-all duration-300 text-black font-bold min-w-[160px] shadow-sm hover:shadow-md"
+                        aria-haspopup="listbox"
+                        aria-expanded={creatorDropdownOpen}
+                        title="Whose articles to show"
+                      >
+                        <span className="inline-flex items-center gap-2 truncate">
+                          <Users className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                          <span className="truncate">
+                            {(creatorOptions.find(o => o.value === createdBy)?.label) || 'Everyone'}
+                          </span>
+                        </span>
+                        <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 text-gray-700 ml-3">
+                          <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 10.94l3.71-3.71a.75.75 0 1 1 1.06 1.06l-4.24 4.24a.75.75 0 0 1-1.06 0L5.21 8.29a.75.75 0 0 1 .02-1.08Z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                      {creatorDropdownOpen && (
+                        <div className="absolute right-0 mt-2 w-60 max-h-80 overflow-auto rounded-xl border border-gray-200 bg-white shadow-xl z-50">
+                          <div className="py-1" role="listbox" aria-label="Made by filter">
+                            {creatorOptions.map(opt => {
+                              const selected = opt.value === createdBy;
+                              return (
+                                <button
+                                  key={opt.value}
+                                  type="button"
+                                  onClick={() => { setCreatedBy(opt.value); setCreatorDropdownOpen(false); }}
+                                  className={`w-full text-left px-4 py-2.5 text-sm font-semibold transition-colors ${selected ? 'bg-blue-50 text-blue-800' : 'text-gray-800 hover:bg-gray-50'}`}
+                                  role="option"
+                                  aria-selected={selected}
+                                >
+                                  <div className="flex items-center justify-between gap-3">
+                                    <span className="truncate">{opt.label}</span>
+                                    {selected && (
+                                      <CheckCircle className="w-4 h-4 flex-shrink-0 text-blue-700" />
+                                    )}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -2980,8 +3120,8 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
                 </div>
                 <h3 className="text-xl font-semibold text-black mb-2">No articles found</h3>
                 <p className="text-gray-600 max-w-md mx-auto">
-                  {searchTerm || statusFilter !== 'all' 
-                    ? 'Try adjusting your search or filters to find what you\'re looking for' 
+                  {searchTerm || statusFilter !== 'all' || createdBy !== 'all'
+                    ? 'Try adjusting your search or filters to find what you\'re looking for'
                     : 'Get started by creating your first article'}
                 </p>
               </div>
@@ -3093,6 +3233,14 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
                           <div className="font-bold text-black text-base group-hover:text-blue-600 transition-colors duration-200 line-clamp-3 leading-relaxed">
                             {article.title}
                           </div>
+                          {(article as ResearchArticle).created_by_name && (
+                            <div className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-gray-500">
+                              <UserCircle className="w-3.5 h-3.5" />
+                              {(article as ResearchArticle).created_by === me?.id
+                                ? 'by you'
+                                : `by ${(article as ResearchArticle).created_by_name}`}
+                            </div>
+                          )}
                           {/* Tags display (no per-row add button) */}
                           <div className="mt-2 relative">
                             {(tagsById[idKey || titleKey] || []).length > 0 && (

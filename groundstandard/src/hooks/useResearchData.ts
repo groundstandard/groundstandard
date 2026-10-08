@@ -6,9 +6,11 @@ type UseResearchDataParams = {
   pageSize: number;
   searchTerm?: string;
   statusFilter?: string;
+  // 'all', 'unknown' (made before authors were recorded), or a user id.
+  createdBy?: string;
 };
 
-export function useResearchData({ page, pageSize, searchTerm, statusFilter }: UseResearchDataParams) {
+export function useResearchData({ page, pageSize, searchTerm, statusFilter, createdBy }: UseResearchDataParams) {
   const [articles, setArticles] = useState<ResearchArticle[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -26,18 +28,40 @@ export function useResearchData({ page, pageSize, searchTerm, statusFilter }: Us
       const searchParam = trimmedSearch ? trimmedSearch : null;
       const statusParam = statusFilter && statusFilter !== 'all' ? statusFilter : null;
 
-      const [{ data: listData, error: listError }, { data: countData, error: countError }] = await Promise.all([
-        supabase.rpc('rpc_research_list', {
-          p_from: from,
-          p_to: to,
-          p_search: searchParam,
-          p_status: statusParam,
-        }),
-        supabase.rpc('rpc_research_count', {
-          p_search: searchParam,
-          p_status: statusParam,
-        }),
-      ]);
+      // Everyone's articles go through the original functions, untouched; only a
+      // Made by filter uses the _by versions, so the default feed cannot be
+      // broken by them.
+      const byPerson = !!createdBy && createdBy !== 'all';
+
+      const [{ data: listData, error: listError }, { data: countData, error: countError }] = await Promise.all(
+        byPerson
+          ? [
+              supabase.rpc('rpc_research_list_by', {
+                p_from: from,
+                p_to: to,
+                p_search: searchParam,
+                p_status: statusParam,
+                p_created_by: createdBy,
+              }),
+              supabase.rpc('rpc_research_count_by', {
+                p_search: searchParam,
+                p_status: statusParam,
+                p_created_by: createdBy,
+              }),
+            ]
+          : [
+              supabase.rpc('rpc_research_list', {
+                p_from: from,
+                p_to: to,
+                p_search: searchParam,
+                p_status: statusParam,
+              }),
+              supabase.rpc('rpc_research_count', {
+                p_search: searchParam,
+                p_status: statusParam,
+              }),
+            ]
+      );
 
       if (listError) throw listError;
       if (countError) throw countError;
@@ -74,7 +98,7 @@ export function useResearchData({ page, pageSize, searchTerm, statusFilter }: Us
     return () => {
       subscription.unsubscribe();
     };
-  }, [page, pageSize, searchTerm, statusFilter]);
+  }, [page, pageSize, searchTerm, statusFilter, createdBy]);
 
   return {
     articles,

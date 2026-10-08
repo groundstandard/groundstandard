@@ -22,5 +22,10 @@ export interface ResearchArticle {
   website?: string | null;
   // Optional business name associated with the research row
   business_name?: string | null;
+  // Who generated it: the signed-in user, stamped on the row by a database
+  // trigger from the claim the app files just before asking n8n. Null on
+  // every article made before that existed.
+  created_by?: string | null;
+  created_by_name?: string | null;
   status: string;
 }
