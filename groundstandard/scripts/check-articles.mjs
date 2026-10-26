@@ -71,7 +71,10 @@ is('the full address', articleUrl('https://www.keppan.com/', '/blog/', 'gymdesk-
 is('no domain, no address', articleUrl('', '/blog', 'x'), null);
 
 console.log('\n— the migration and the publish flow —');
-const MIGRATION = fs.readFileSync(new URL('../supabase/migrations/20261027_001_article_cms.sql', import.meta.url), 'utf8');
+// Both CMS migrations, in order, as they run in Supabase.
+const MIGRATION = ['20261027_001_article_cms.sql', '20261027_002_article_template_fields.sql']
+  .map(f => fs.readFileSync(new URL(`../supabase/migrations/${f}`, import.meta.url), 'utf8'))
+  .join('\n');
 const db = new PGlite();
 const ok = (name, cond, extra = '') => { console.log(`${cond ? '  ok  ' : '  FAIL'} ${name}${extra ? ` — ${extra}` : ''}`); if (!cond) failures.push(name); };
 const one = async (sql, params) => (await db.query(sql, params)).rows[0];
@@ -119,6 +122,15 @@ const pub = (await one(`select rpc_article_publish(1) as r`)).r;
 ok('publish returns the live address', pub?.url === 'https://www.keppan.com/blog/gymdesk-alternatives', pub?.url);
 const live = (await one(`select public_article('keppan', 'gymdesk-alternatives') as a`)).a;
 ok('the site template finds it', live?.found === true && live?.title === 'Gymdesk alternatives');
+ok('  with a path the template can link to', live?.path === '/blog/gymdesk-alternatives', live?.path);
+ok('  a date ready to show, in New York time', /^[A-Z][a-z]+ \d{1,2}, \d{4}$/.test(live?.date_label ?? '') && /^\d{4}-\d{2}-\d{2}$/.test(live?.date_iso ?? ''), `${live?.date_label} / ${live?.date_iso}`);
+ok('  a reading time of at least a minute', live?.minutes === 1, String(live?.minutes));
+ok('  the site as the author', live?.author === 'Keppan');
+const ld = JSON.parse(live?.jsonld_text ?? '{}');
+ok('  structured data a JsonLd block can take', ld['@type'] === 'BlogPosting' && ld.headline === 'Gymdesk alternatives' && ld.mainEntityOfPage === 'https://www.keppan.com/blog/gymdesk-alternatives');
+ok('  with no empty fields in it', !('image' in ld), JSON.stringify(Object.keys(ld)));
+const entities = (await one(`select article_text('<p>Tom &amp; Jerry&nbsp;&quot;run&quot;</p>') as t`)).t;
+ok('reader text decodes the usual entities', entities === 'Tom & Jerry "run"', entities);
 ok('  with a description made from the text when none was set', live?.seo_description === 'First article.');
 ok('another site does not see it', (await one(`select public_article('groundstandard', 'gymdesk-alternatives') as a`)).a.found === false);
 ok('a made-up address answers found: false', (await one(`select public_article('keppan', 'nope') as a`)).a.found === false);
