@@ -231,9 +231,9 @@ export default function LaunchPad({ onLaunchArticleGenerator, onLaunchArticleCMS
   const renderCard = (tool: ToolCard) => (
     <div
       key={tool.title}
-      className={`group relative rounded-2xl bg-white border border-gray-100 border-t-[3px] ${tool.accentColor} shadow-sm hover:shadow-xl hover:shadow-gray-200/60 hover:-translate-y-1 transition-all duration-300 overflow-hidden`}
+      className={`group relative flex flex-col rounded-2xl bg-white border border-gray-100 border-t-[3px] ${tool.accentColor} shadow-sm hover:shadow-xl hover:shadow-gray-200/60 hover:-translate-y-1 transition-all duration-300 overflow-hidden`}
     >
-      <div className="p-6">
+      <div className="flex flex-1 flex-col p-6">
         {/* Header */}
         <div className="flex items-start justify-between mb-5">
           <div className={`w-12 h-12 rounded-2xl ${tool.iconBg} flex items-center justify-center`}>
@@ -271,7 +271,7 @@ export default function LaunchPad({ onLaunchArticleGenerator, onLaunchArticleCMS
         <button
           type="button"
           onClick={tool.onAction}
-          className={`w-full inline-flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl text-white ${tool.buttonClass} shadow-lg transition-all duration-200 group/btn`}
+          className={`mt-auto w-full inline-flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl text-white ${tool.buttonClass} shadow-lg transition-all duration-200 group/btn`}
         >
           {tool.actionLabel}
           <ArrowRight className="w-4 h-4 group-hover/btn:translate-x-0.5 transition-transform duration-200" />
@@ -360,7 +360,7 @@ export default function LaunchPad({ onLaunchArticleGenerator, onLaunchArticleCMS
               <p className="text-xs text-gray-400">Create, edit, and extract content</p>
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
             {contentTools.map(renderCard)}
           </div>
         </div>
@@ -376,7 +376,7 @@ export default function LaunchPad({ onLaunchArticleGenerator, onLaunchArticleCMS
               <p className="text-xs text-gray-400">Manage submissions, integrations, and more</p>
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
             {dataTools.map(renderCard)}
           </div>
         </div>
