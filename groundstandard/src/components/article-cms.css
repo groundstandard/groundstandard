@@ -1,0 +1,63 @@
+/* How an article reads in the CMS editor and preview. Deliberately plain:
+   each site's own template decides how its blog looks; this is only here so
+   an editor can see the structure — headings, lists, links — while writing. */
+
+.gs-article {
+  color: #1e293b;
+  font-size: 1.0625rem;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+
+.gs-article-editing {
+  min-height: 24rem;
+  outline: none;
+}
+
+.gs-article > * + * { margin-top: 1.1em; }
+
+.gs-article h2,
+.gs-article h3,
+.gs-article h4 {
+  color: #0f172a;
+  font-weight: 750;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+}
+.gs-article h2 { font-size: 1.6rem; margin-top: 1.9em; }
+.gs-article h3 { font-size: 1.25rem; margin-top: 1.6em; }
+.gs-article h4 { font-size: 1.05rem; margin-top: 1.4em; }
+.gs-article > :first-child { margin-top: 0; }
+
+.gs-article a {
+  color: #1d4ed8;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.gs-article-editing a { cursor: text; }
+
+.gs-article ul,
+.gs-article ol { padding-left: 1.5em; }
+.gs-article ul { list-style: disc; }
+.gs-article ol { list-style: decimal; }
+.gs-article li + li { margin-top: 0.35em; }
+.gs-article li > p { margin: 0; }
+
+.gs-article blockquote {
+  border-left: 3px solid #cbd5e1;
+  color: #475569;
+  font-style: italic;
+  padding-left: 1.1em;
+}
+
+.gs-article hr {
+  border: 0;
+  border-top: 1px solid #e2e8f0;
+  margin: 2em 0;
+}
+
+.gs-article strong { font-weight: 700; color: #0f172a; }
+
+/* The editor's own selection outline on a horizontal rule or image. */
+.gs-article .ProseMirror-selectednode { outline: 2px solid #93c5fd; outline-offset: 2px; }

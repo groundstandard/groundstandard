@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import Dashboard from './components/Dashboard';
 import FormBuilder from './components/FormBuilder';
 import FormSubmission from './components/FormSubmission';
@@ -9,6 +9,10 @@ import ImageContentEditor from './components/ImageContentEditor';
 import UpdateFormSubmission from './components/UpdateFormSubmission';
 import { supabase } from './lib/supabase';
 import type { Session } from '@supabase/supabase-js';
+
+// Loaded only when opened: the editor it carries is the heaviest part of the
+// app, and none of the other tools need it.
+const ArticleCMS = lazy(() => import('./components/ArticleCMS'));
 
 function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -63,6 +67,10 @@ function App() {
           sessionStorage.setItem('gs_selected_tool_v1', 'article');
           setSelectedTool('article');
         }}
+        onLaunchArticleCMS={() => {
+          sessionStorage.setItem('gs_selected_tool_v1', 'article_cms');
+          setSelectedTool('article_cms');
+        }}
         onLaunchFormSubmission={() => {
           sessionStorage.setItem('gs_selected_tool_v1', 'form_submission');
           setSelectedTool('form_submission');
@@ -94,6 +102,14 @@ function App() {
 
   if (selectedTool === 'form_builder') {
     return <FormBuilder onBackToLaunch={backToLaunch} />;
+  }
+
+  if (selectedTool === 'article_cms') {
+    return (
+      <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-slate-100/70 text-sm text-slate-500">Opening the Article CMS…</div>}>
+        <ArticleCMS onBackToLaunch={backToLaunch} />
+      </Suspense>
+    );
   }
 
   if (selectedTool === 'form_submission') {

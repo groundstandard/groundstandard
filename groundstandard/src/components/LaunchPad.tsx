@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import type { ReactNode } from 'react';
-import { ArrowRight, ClipboardList, FileText, UserCircle, X, Eye, LogOut, Globe, Image as ImageIcon, RefreshCw, Zap, Layers, ExternalLink, Target, Lightbulb, TrendingUp, Shield, BarChart3, Users, Cpu, Clock } from 'lucide-react';
+import { ArrowRight, ClipboardList, FileText, UserCircle, X, Eye, LogOut, Globe, Image as ImageIcon, RefreshCw, Zap, Layers, ExternalLink, Target, Lightbulb, TrendingUp, Shield, BarChart3, Users, Cpu, Clock, Newspaper } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 type ToolCard = {
@@ -21,6 +21,7 @@ type ToolCard = {
 type LaunchPadProps = {
   domainLabel: string;
   onLaunchArticleGenerator: () => void;
+  onLaunchArticleCMS: () => void;
   onLaunchFormSubmission: () => void;
   onLaunchWebScraper: () => void;
   onLaunchImageEditor: () => void;
@@ -28,7 +29,7 @@ type LaunchPadProps = {
   onLaunchUpdateFormSubmission: () => void;
 };
 
-export default function LaunchPad({ onLaunchArticleGenerator, onLaunchFormSubmission, onLaunchWebScraper, onLaunchImageEditor, onLaunchUpdateFormSubmission, onLaunchFormBuilder }: LaunchPadProps) {
+export default function LaunchPad({ onLaunchArticleGenerator, onLaunchArticleCMS, onLaunchFormSubmission, onLaunchWebScraper, onLaunchImageEditor, onLaunchUpdateFormSubmission, onLaunchFormBuilder }: LaunchPadProps) {
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
@@ -129,6 +130,19 @@ export default function LaunchPad({ onLaunchArticleGenerator, onLaunchFormSubmis
       dotColor: 'bg-blue-500',
       actionLabel: 'Open Tool',
       onAction: onLaunchArticleGenerator,
+    },
+    {
+      title: 'Article CMS',
+      tagline: 'Edit and Publish Articles',
+      description: 'Every generated article in one list. Add links, set the SEO, and publish to the right site — it goes live on that site\'s blog with no page to build.',
+      features: ['Browse, search and filter every article', 'Editor with links, headings and lists', 'Publish to any site in one click'],
+      icon: <Newspaper className="w-5 h-5" />,
+      iconBg: 'bg-amber-50 text-amber-600',
+      accentColor: 'border-t-amber-500',
+      buttonClass: 'bg-amber-600 hover:bg-amber-700 shadow-amber-600/25',
+      dotColor: 'bg-amber-500',
+      actionLabel: 'Open Tool',
+      onAction: onLaunchArticleCMS,
     },
     {
       title: 'Image Content Editor',
