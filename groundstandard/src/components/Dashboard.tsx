@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect, useCallback, useRef, type FormEvent } from 'react';
 import { Search, FileText, Clock, CheckCircle, RefreshCw, AlertCircle, X, Send, Plus, Filter, Eye, Edit3, Loader2, Sparkles, ArrowUp, Trash, UserCircle, LogOut, ArrowLeft, Users } from 'lucide-react';
 import ChatWidget from './ChatWidget';
+import AiErrorNotice from './AiErrorNotice';
+import { describeAiError } from '../lib/aiError';
 import { useResearchData } from '../hooks/useResearchData';
 import type { ResearchArticle } from '../lib/supabase';
 import { supabase } from '../lib/supabase';
@@ -117,6 +119,8 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
   const [callToAction, setCallToAction] = useState('');
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  // A failed Create request, as it failed. AiErrorNotice says what it means.
+  const [createError, setCreateError] = useState<string | null>(null);
   const [sendSuccess, setSendSuccess] = useState(false);
   const [keywordCount, setKeywordCount] = useState<string>('1');
   // Modal state to view article content
@@ -128,7 +132,6 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
   const [deleteTargetIds, setDeleteTargetIds] = useState<Array<number | string>>([]);
   const [deleteTargetTitle, setDeleteTargetTitle] = useState<string>('');
   const [toast, setToast] = useState<string | null>(null);
-  const [aiWarning, setAiWarning] = useState<string | null>(null);
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
@@ -316,23 +319,6 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
   const [rewriteModelQuery, setRewriteModelQuery] = useState('');
   const rewriteModelDropdownRef = useRef<HTMLDivElement | null>(null);
   const [rewriteModalNotice, setRewriteModalNotice] = useState<string | null>(null);
-
-  const cleanErrorMessage = (rawMsg: string): string => {
-    // Remove technical JSON syntax and make user-friendly
-    let cleaned = rawMsg
-      .replace(/^\[?\s*\{\s*"[Ff]ailed"\s*:\s*"?/, '')
-      .replace(/"\s*\}\s*\]?$/, '')
-      .replace(/\\n/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    
-    // If it's still too technical, provide a generic friendly message
-    if (cleaned.includes('{') || cleaned.includes('}') || cleaned.includes('"') || cleaned.length > 200) {
-      cleaned = 'OpenAI has run out of balance. Please top up your OpenAI account.';
-    }
-    
-    return cleaned;
-  };
 
   const writeModelOptions = rewriteModelOptions;
   const [writeModel, setWriteModel] = useState<string>(defaultModel);
@@ -814,14 +800,6 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
       });
       if (!resp.ok) {
         const txt = await resp.text();
-        const t = txt.toLowerCase();
-        if (
-          t.includes('insufficient') || t.includes('quota') || t.includes('balance') ||
-          t.includes('billing') || t.includes('capacity') || t.includes('limit') ||
-          t.includes('rate limit') || t.includes('insufficient_quota')
-        ) {
-          setAiWarning('OpenAI has run out of balance. Please top up your OpenAI account.');
-        }
         throw new Error(`Rewrite webhook error: ${resp.status} ${txt}`);
       }
       // Check for failure messages in response body even if HTTP 200
@@ -846,14 +824,6 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
             failedMsg = getFailed(json);
           }
           if (failedMsg) {
-            const f = failedMsg.toLowerCase();
-            if (
-              f.includes('insufficient') || f.includes('quota') || f.includes('balance') ||
-              f.includes('billing') || f.includes('capacity') || f.includes('limit') ||
-              f.includes('rate limit') || f.includes('insufficient_quota')
-            ) {
-              setAiWarning('OpenAI has run out of balance. Please top up your OpenAI account.');
-            }
             throw new Error(failedMsg);
           }
         } catch {
@@ -877,14 +847,6 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
       setRewritingMeta(prev => { const n = { ...prev }; if (idKey) delete n[idKey]; if (titleKey) delete n[titleKey]; return n; });
       // Show error notice and reopen modal with previous selections
       const msg = err instanceof Error ? err.message : 'Failed to send rewrite request';
-      const m = msg.toLowerCase();
-      if (
-        m.includes('insufficient') || m.includes('quota') || m.includes('balance') ||
-        m.includes('billing') || m.includes('capacity') || m.includes('limit') ||
-        m.includes('rate limit') || m.includes('insufficient_quota')
-      ) {
-        setAiWarning('OpenAI has run out of balance. Please top up your OpenAI account.');
-      }
       const formSnapshot = {
         instructions: instructions || '',
         model: model || defaultModel,
@@ -1049,6 +1011,7 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
     const count = Math.min(10, Math.max(1, Number.isNaN(parsed) ? 1 : parsed));
     setSending(true);
     setSendError(null);
+    setCreateError(null);
     setSendSuccess(false);
     // Add UI-only optimistic placeholder rows immediately (do NOT write to Supabase)
     const kw = keywordInput.trim();
@@ -1087,14 +1050,6 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
       });
       if (!resp.ok) {
         const txt = await resp.text();
-        const t = txt.toLowerCase();
-        if (
-          t.includes('insufficient') || t.includes('quota') || t.includes('balance') ||
-          t.includes('billing') || t.includes('capacity') || t.includes('limit') ||
-          t.includes('rate limit') || t.includes('insufficient_quota')
-        ) {
-          setAiWarning('The AI provider is currently out of balance or capacity. Please top up your OpenAI balance or try again later.');
-        }
         throw new Error(`Webhook error: ${resp.status} ${txt}`);
       }
       // Some n8n nodes return 200 with a body containing a failure message
@@ -1119,26 +1074,11 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
             failedMsg = getFailed(json);
           }
           if (failedMsg) {
-            const f = failedMsg.toLowerCase();
-            if (
-              f.includes('insufficient') || f.includes('quota') || f.includes('balance') ||
-              f.includes('billing') || f.includes('capacity') || f.includes('limit') ||
-              f.includes('rate limit') || f.includes('insufficient_quota')
-            ) {
-              setAiWarning('The AI provider is currently out of balance or capacity. Please top up your OpenAI balance or try again later.');
-            }
             throw new Error(failedMsg);
           }
         } catch {
           const txt = okBodyText.toLowerCase();
           if (txt.includes('"failed"') || txt.startsWith('failed') || txt.includes('failed:')) {
-            if (
-              txt.includes('insufficient') || txt.includes('quota') || txt.includes('balance') ||
-              txt.includes('billing') || txt.includes('capacity') || txt.includes('limit') ||
-              txt.includes('rate limit') || txt.includes('insufficient_quota')
-            ) {
-              setAiWarning('OpenAI has run out of balance. Please top up your OpenAI account.');
-            }
             throw new Error(okBodyText);
           }
         }
@@ -1156,47 +1096,21 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
       // No Supabase placeholder insert; we rely solely on n8n to persist rows
     } catch (err) {
       cancelClaim(claimId);
-      // If webhook failed due to balance/capacity, show warning, revert optimistic rows, and reopen Create modal
+      // Do NOT insert any 'processing' rows into Supabase.
+      // Remove optimistic placeholders from this attempt
       const msg = err instanceof Error ? err.message : String(err || '');
-      const m = msg.toLowerCase();
-      const isBalanceIssue = (
-        m.includes('insufficient') || m.includes('quota') || m.includes('balance') ||
-        m.includes('billing') || m.includes('capacity') || m.includes('limit') ||
-        m.includes('rate limit') || m.includes('insufficient_quota')
-      );
-      if (isBalanceIssue) {
-        setAiWarning('OpenAI has run out of balance. Please top up your OpenAI account.');
-        // Remove optimistic placeholders from this attempt
-        setOptimisticRows(prev => prev.filter(r => !(newTemps as any[]).some(t => t.id === (r as any).id)));
+      setOptimisticRows(prev => prev.filter(r => !(newTemps as any[]).some(t => t.id === (r as any).id)));
+      const { kind } = describeAiError(msg);
+      if (kind === 'credits' || kind === 'rate_limit') {
         // Also try to clean up any placeholder rows that may have been inserted previously (legacy)
         try {
           await supabase.rpc('rpc_research_cleanup_processing', {
             p_keyword: kw,
           });
         } catch (e) { console.warn('Cleanup delete failed (safe to ignore):', e); }
-        // Restore form inputs and reopen the Create modal
-        setKeywordInput(kw);
-        setKeywordCount(String(count));
-        setBizName(bizName);
-        setCity(city);
-        setProvState(provState);
-        setCallToAction(callToAction);
-        setSendSuccess(false);
-        setSendError(null);
-        setToast(null);
-        setShowAddModal(true);
-        setSending(false);
-        return; // Skip Supabase fallback insert on balance/capacity errors
       }
-      // Otherwise: do NOT insert any 'processing' rows into Supabase.
-      // Remove optimistic placeholders from this attempt
-      setOptimisticRows(prev => prev.filter(r => !(newTemps as any[]).some(t => t.id === (r as any).id)));
-      setSendError(
-        err instanceof Error
-          ? `Create failed: ${err.message}`
-          : 'Failed to create articles'
-      );
-      // Restore form inputs and reopen Create modal for correction/retry
+      // Say what went wrong in the Create modal, reopened as it was for a retry
+      setCreateError(msg || 'Failed to create articles');
       setKeywordInput(kw);
       setKeywordCount(String(count));
       setBizName(bizName);
@@ -1281,15 +1195,6 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
       });
       if (!resp.ok) {
         const txt = await resp.text();
-        const t = txt.toLowerCase();
-        if (
-          t.includes('insufficient') || t.includes('quota') || t.includes('balance') ||
-          t.includes('billing') || t.includes('capacity') || t.includes('limit') ||
-          t.includes('rate limit') || t.includes('insufficient_quota')
-        ) {
-          // Surface a friendly message inside the Write modal
-          setWriteModalNotice('OpenAI has run out of balance. Please top up your OpenAI account.');
-        }
         throw new Error(`Webhook error: ${resp.status} ${txt}`);
       }
       // Some n8n nodes return a 200 with a body like: [{ "Failed": "..." }]
@@ -1315,27 +1220,12 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
             failedMsg = getFailed(json);
           }
           if (failedMsg) {
-            const f = failedMsg.toLowerCase();
-            if (
-              f.includes('insufficient') || f.includes('quota') || f.includes('balance') ||
-              f.includes('billing') || f.includes('capacity') || f.includes('limit') ||
-              f.includes('rate limit') || f.includes('insufficient_quota')
-            ) {
-              setWriteModalNotice('OpenAI has run out of balance. Please top up your OpenAI account.');
-            }
             throw new Error(failedMsg);
           }
         } catch {
           // If it wasn't JSON, but includes the pattern textually, treat as failure.
           const txt = okBodyText.toLowerCase();
           if (txt.includes('"failed"') || txt.startsWith('failed') || txt.includes('failed:')) {
-            if (
-              txt.includes('insufficient') || txt.includes('quota') || txt.includes('balance') ||
-              txt.includes('billing') || txt.includes('capacity') || txt.includes('limit') ||
-              txt.includes('rate limit') || txt.includes('insufficient_quota')
-            ) {
-              setWriteModalNotice('OpenAI has run out of balance. Please top up your OpenAI account.');
-            }
             throw new Error(okBodyText);
           }
         }
@@ -1344,14 +1234,6 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
     } catch (err) {
       console.error('Write failed', err);
       const msg = err instanceof Error ? err.message : 'Failed to write';
-      const m = msg.toLowerCase();
-      if (
-        m.includes('insufficient') || m.includes('quota') || m.includes('balance') ||
-        m.includes('billing') || m.includes('capacity') || m.includes('limit') ||
-        m.includes('rate limit') || m.includes('insufficient_quota')
-      ) {
-        setWriteModalNotice('OpenAI has run out of balance. Please top up your OpenAI account.');
-      }
       // Clear pending state for this row
       setWritingIds(prev => {
         const next = new Set(prev);
@@ -1836,7 +1718,7 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
                 Refresh
               </button>
               <button 
-                onClick={() => !isBusy && setShowAddModal(true)} 
+                onClick={() => { if (!isBusy) { setCreateError(null); setShowAddModal(true); } }}
                 disabled={isBusy} 
                 className="inline-flex items-center px-6 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -2187,6 +2069,8 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
                 </div>
               )}
 
+              {createError && <AiErrorNotice error={createError} />}
+
               
               {sendSuccess && (
                 <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
@@ -2363,23 +2247,7 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
                     </div>
                   )}
                 </div>
-                {rewriteModalNotice && (
-                  <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                    <div className="flex items-start gap-2">
-                      <div className="flex-shrink-0 mt-0.5">
-                        <svg className="w-4 h-4 text-amber-600" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
-                        </svg>
-                      </div>
-                      <div className="flex-1">
-                        <div className="font-medium text-amber-900 mb-1">This model isn't working right now</div>
-                        <div className="text-amber-800 mb-2 leading-relaxed">
-                          {cleanErrorMessage(rewriteModalNotice || '')}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                {rewriteModalNotice && <AiErrorNotice className="mt-2" error={rewriteModalNotice} model={rewriteModel} />}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Instructions or prompt</label>
@@ -2551,23 +2419,7 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
                     </div>
                   )}
                 </div>
-                {writeModalNotice && (
-                  <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                    <div className="flex items-start gap-2">
-                      <div className="flex-shrink-0 mt-0.5">
-                        <svg className="w-4 h-4 text-amber-600" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
-                        </svg>
-                      </div>
-                      <div className="flex-1">
-                        <div className="font-medium text-amber-900 mb-1">This model isn't working right now</div>
-                        <div className="text-amber-800 mb-2 leading-relaxed">
-                          {cleanErrorMessage(writeModalNotice || '')}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                {writeModalNotice && <AiErrorNotice className="mt-2" error={writeModalNotice} model={writeModel} />}
               </div>
 
               <div>
@@ -3630,25 +3482,6 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
 
         {/* Floating Chat Widget (bottom-left) */}
         <ChatWidget webhookUrl="/api/chat-bot" />
-        {aiWarning && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setAiWarning(null)} />
-            <div className="relative bg-white w-full max-w-md mx-auto rounded-2xl shadow-2xl border border-gray-200 p-6 z-10">
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 bg-red-600 rounded-xl flex items-center justify-center">
-                  <AlertCircle className="w-5 h-5 text-white" />
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-black mb-1">Service Capacity / Balance Reached</h3>
-                  <p className="text-sm text-gray-700">{aiWarning}</p>
-                </div>
-              </div>
-              <div className="mt-6 flex justify-end">
-                <button onClick={() => setAiWarning(null)} className="inline-flex items-center px-4 py-2.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-xl shadow-sm transition-all duration-200">OK</button>
-              </div>
-            </div>
-          </div>
-        )}
         {toast && (
           <div className="fixed top-6 right-6 z-50 animate-in slide-in-from-right-full duration-300">
             <div className="bg-white/90 backdrop-blur-sm border border-gray-200 text-black px-6 py-4 rounded-xl shadow-xl text-sm font-medium max-w-sm">

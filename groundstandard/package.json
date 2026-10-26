@@ -11,7 +11,8 @@
     "check:form": "node scripts/check-form.mjs",
     "check:articles": "node scripts/check-articles.mjs",
     "typecheck": "tsc -p tsconfig.app.json --noEmit",
-    "check:attribution": "node scripts/check-attribution.mjs"
+    "check:attribution": "node scripts/check-attribution.mjs",
+    "check:ai-errors": "node scripts/check-ai-errors.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
