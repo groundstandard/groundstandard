@@ -13,6 +13,7 @@ export type AiErrorKind =
   | 'credits'
   | 'auth'
   | 'rate_limit'
+  | 'turned_away'
   | 'model'
   | 'too_long'
   | 'timeout'
@@ -36,10 +37,16 @@ export type AiError = {
 // The first that matches decides. Credits come before rate limits because
 // OpenAI answers an empty account with a 429 too.
 const KINDS: Array<[AiErrorKind, RegExp]> = [
-  ['credits', /insufficient[_ ]quota|exceeded your current quota|check your plan and billing|insufficient (credits|balance|funds)|credit balance is too low|requires more credits|can only afford|out of credits|billing[_ ]hard[_ ]limit|payment required/],
+  ['credits', /insufficient[_ ]quota|exceeded your current quota|check your plan and billing|insufficient (credits|balance|funds)|credit balance is too low|requires more credits|can only afford|out of credits|no credits remaining|add credits to continue|billing[_ ]hard[_ ]limit|payment required/],
   ['auth', /incorrect api key|invalid[_ ]api[_ ]key|authorization failed|no auth credentials|api key (is )?(invalid|expired|revoked)/],
   ['too_long', /context[_ ]length|maximum context|context window|too many tokens|prompt is too long|reduce the length of the messages/],
-  ['rate_limit', /rate[ _-]?limit|too many requests|tokens per min|requests per (min|day)|resource_exhausted|overloaded|try again in \d/],
+  // A rate limit only when the provider's own words show one
+  ['rate_limit', /rate limit reached for|rate[ _-]?limited|rate limit exceeded|tokens per min|requests per (min|day)|resource_exhausted|overloaded|try again in \d/],
+  // n8n's label alone ("OpenAI: Rate limit reached", "The service is receiving
+  // too many requests from you") is not one. n8n gave OpenAI's "You have no
+  // credits remaining" exactly that label, and the label was all that reached
+  // the app (Jade, 27 October).
+  ['turned_away', /rate[ _-]?limit|too many requests/],
   ['model', /not a valid model|model_not_found|no endpoints found|does not exist or you do not have access|invalid model|unknown model|model (is )?(not found|not supported|unavailable|deprecated)|no allowed providers/],
   ['workflow_off', /is not registered|workflow must be active/],
   ['timeout', /timed? ?out|timeout|time-out/],
@@ -53,7 +60,7 @@ const BY_STATUS: Record<number, AiErrorKind> = {
   401: 'auth',
   402: 'credits',
   408: 'timeout',
-  429: 'rate_limit',
+  429: 'turned_away',
   500: 'workflow',
   502: 'server',
   503: 'server',
@@ -74,17 +81,17 @@ const PROVIDERS: Array<[string, RegExp]> = [
   ['OpenAI', /openai(?!\/)|insufficient[_ ]quota|exceeded your current quota/],
 ];
 
-const TOP_UP: Record<string, string> = {
-  OpenAI: 'Top up at platform.openai.com, under Settings → Billing.',
-  OpenRouter: 'Top up at openrouter.ai, under Settings → Credits.',
-  Anthropic: 'Top up at console.anthropic.com, under Settings → Billing.',
+const BILLING: Record<string, string> = {
+  OpenAI: 'platform.openai.com, under Settings → Billing',
+  OpenRouter: 'openrouter.ai, under Settings → Credits',
+  Anthropic: 'console.anthropic.com, under Settings → Billing',
 };
 
 // Where n8n and the providers put the words: n8n's { message, description },
 // OpenAI's and OpenRouter's { error: { message } }, the [{ Failed }] some of
 // our workflows answer with, and the provider's own reply that OpenRouter
 // tucks into error.metadata.raw.
-const MESSAGE_KEYS = ['Failed', 'failed', 'FAILURE', 'error', 'message', 'description', 'detail', 'details', 'hint', 'reason', 'errorMessage', 'error_description', 'metadata', 'raw'];
+const MESSAGE_KEYS = ['Failed', 'failed', 'FAILURE', 'error', 'error output', 'message', 'description', 'detail', 'details', 'hint', 'reason', 'errorMessage', 'error_description', 'metadata', 'raw'];
 
 // n8n's stock wording for a status code, which says no more than the code.
 const GENERIC = /^(error in workflow|workflow could not be started!?|bad request - please check your parameters|your request is invalid or could not be processed by the service|the service (was not able|failed) to process your request|internal server error|unknown error)\.?$/i;
@@ -142,13 +149,18 @@ function words(kind: AiErrorKind, provider: string | null, status: number | null
       return {
         title: provider ? `${provider} is out of credits` : 'Out of credits',
         message: provider
-          ? `${provider} has run out of credits, so this could not finish. It needs topping up before it will work again.${TOP_UP[provider] ? ' ' + TOP_UP[provider] : ''}`
+          ? `${provider} has run out of credits, so this could not finish. It needs topping up before it will work again.${BILLING[provider] ? ` Top up at ${BILLING[provider]}.` : ''}`
           : 'One of the accounts this uses has run out of credits, so this could not finish. The error details say which one.',
       };
     case 'auth':
       return { title: 'API key refused', message: `${who} refused the key n8n uses${code}. The key needs replacing in n8n.` };
     case 'rate_limit':
       return { title: 'Too many requests right now', message: `${who} is turning requests away for now${code}, because of too many requests or too much load. Wait a minute and try again.` };
+    case 'turned_away':
+      return {
+        title: `${who} turned this request away`,
+        message: `n8n reports an empty account and too many requests the same way${code}, so check the credits first${provider && BILLING[provider] ? `, at ${BILLING[provider]}` : ''}. If there are credits left, wait a minute and try again.`,
+      };
     case 'model':
       return {
         title: "This model isn't available",
