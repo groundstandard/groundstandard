@@ -667,6 +667,31 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
     if (next.size !== writingIds.size) setWritingIds(next);
   }, [articles, writingIds, writingMeta]);
 
+  // A write Netlify stopped waiting for keeps its spinner until the article
+  // lands (see handleConfirmWrite). One that has not landed 10 minutes after it
+  // started failed in n8n, so give its Write button back and say so.
+  useEffect(() => {
+    const giveUpMs = 10 * 60 * 1000;
+    const keys = Array.from(writingIds).filter(k => typeof writingMeta[k]?.startedAt === 'number');
+    if (keys.length === 0) return;
+    const dueAt = (k: string) => (writingMeta[k]?.startedAt ?? 0) + giveUpMs;
+    const t = window.setTimeout(() => {
+      const late = keys.filter(k => dueAt(k) <= Date.now());
+      if (late.length === 0) return;
+      setWritingIds(prev => { const next = new Set(prev); late.forEach(k => next.delete(k)); return next; });
+      setWritingMeta(prev => { const n = { ...prev }; late.forEach(k => delete n[k]); return n; });
+      const unwritten = (articles || []).find(a =>
+        (late.includes(String(a.id ?? '')) || late.includes(String(a.title ?? ''))) &&
+        String(a.status ?? '').toLowerCase() === 'new'
+      );
+      if (unwritten) {
+        setToast(`“${unwritten.title}” didn't come back from n8n after 10 minutes, so it may have failed. You can write it again.`);
+        window.setTimeout(() => setToast(null), 8000);
+      }
+    }, Math.max(0, Math.min(...keys.map(dueAt)) - Date.now()));
+    return () => window.clearTimeout(t);
+  }, [articles, writingIds, writingMeta]);
+
   // Prune stale rewriting ids (older than 2h) based on startedAt
   useEffect(() => {
     if (rewritingIds.size === 0) return;
@@ -1232,8 +1257,14 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
       }
       // Do not auto refresh here; row stays marked as writing until backend completes
     } catch (err) {
-      console.error('Write failed', err);
       const msg = err instanceof Error ? err.message : 'Failed to write';
+      // Netlify stops waiting for n8n after 26 seconds and a write takes one to
+      // two minutes, so nearly every write that works ends up here. n8n carries
+      // on, and the row's spinner clears when the article lands. Reopening the
+      // form for it had each article written 2.6 times on average in the week
+      // to 27 October, and since then had Jade waiting minutes between articles.
+      if (describeAiError(msg).kind === 'timeout') return;
+      console.error('Write failed', err);
       // Clear pending state for this row
       setWritingIds(prev => {
         const next = new Set(prev);
