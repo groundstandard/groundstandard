@@ -839,7 +839,9 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
           doc_link: article.doc_link ?? null,
           content: (article as unknown as { content?: string }).content ?? null,
           status: (article as unknown as { status?: string }).status ?? undefined,
-          word_limit: 1000,
+          // The Rewrite workflow saves this as the article's word count and writes to it.
+          // Almost every article is written at 1500 words, so 1000 cut most rewrites short.
+          word_limit: 1500,
           additional_keywords: [],
           mentions_per_keyword: { min: 2, max: 3 },
           action: 'rewrite',
