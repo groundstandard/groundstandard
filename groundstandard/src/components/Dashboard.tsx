@@ -122,6 +122,7 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
   // A failed Create request, as it failed. AiErrorNotice says what it means.
   const [createError, setCreateError] = useState<string | null>(null);
   const [sendSuccess, setSendSuccess] = useState(false);
+  const [keywordCount, setKeywordCount] = useState<string>('1');
   // Modal state to view article content
   const [showContentModal, setShowContentModal] = useState(false);
   const [contentToShow, setContentToShow] = useState<string>('');
@@ -1031,11 +1032,8 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
       setSendSuccess(false);
       return;
     }
-    // One article per keyword. Up to ten at a time came out as near copies of
-    // one another, and a site can post only one of them: Bobby, 5 November,
-    // after 40 of 600 were usable. n8n's Research workflow makes one and
-    // refuses a keyword the business already has an article for.
-    const count = 1;
+    const parsed = parseInt((keywordCount || '1') as string, 10);
+    const count = Math.min(10, Math.max(1, Number.isNaN(parsed) ? 1 : parsed));
     setSending(true);
     setSendError(null);
     setCreateError(null);
@@ -1115,6 +1113,7 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
       // Then refetch so the UI shows only finalized rows created by n8n\nsetSendSuccess(true);
       // Inputs cleanup after success
       setKeywordInput('');
+      setKeywordCount('1');
       setBizName('');
       setCity('');
       setProvState('');
@@ -1138,6 +1137,7 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
       // Say what went wrong in the Create modal, reopened as it was for a retry
       setCreateError(msg || 'Failed to create articles');
       setKeywordInput(kw);
+      setKeywordCount(String(count));
       setBizName(bizName);
       setCity(city);
       setProvState(provState);
@@ -1971,8 +1971,8 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
                   <Sparkles className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-black">Create New Article</h3>
-                  <p className="text-sm text-gray-600">One article per keyword</p>
+                  <h3 className="text-xl font-bold text-black">Create New Articles</h3>
+                  <p className="text-sm text-gray-600">Generate articles from your keyword</p>
                 </div>
               </div>
               <button
@@ -2044,6 +2044,52 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
                   />
                 </div>
               </div>
+              <div>
+                <label className="block text-sm font-semibold text-black mb-3">Number of Articles? (max 10)</label>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const v = parseInt((keywordCount || '1'), 10);
+                      const next = Math.max(1, (Number.isNaN(v) ? 1 : v) - 1);
+                      setKeywordCount(String(next));
+                    }}
+                    disabled={sending}
+                    className="w-10 h-10 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-xl text-black font-semibold disabled:opacity-50 transition-all duration-200 flex items-center justify-center"
+                    aria-label="Decrement"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    step={1}
+                    value={keywordCount}
+                    onChange={(e) => setKeywordCount(e.target.value)}
+                    onBlur={(e) => {
+                      const v = parseInt(e.target.value || '1', 10);
+                      const clamped = Math.min(10, Math.max(1, Number.isNaN(v) ? 1 : v));
+                      setKeywordCount(String(clamped));
+                    }}
+                    disabled={sending}
+                    className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 disabled:opacity-50 transition-all duration-200 text-center font-semibold text-black"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const v = parseInt((keywordCount || '1'), 10);
+                      const next = Math.min(10, (Number.isNaN(v) ? 1 : v) + 1);
+                      setKeywordCount(String(next));
+                    }}
+                    disabled={sending}
+                    className="w-10 h-10 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-xl text-black font-semibold disabled:opacity-50 transition-all duration-200 flex items-center justify-center"
+                    aria-label="Increment"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
 
               {sendError && (
                 <div className="p-4 bg-red-50 border border-red-200 rounded-xl">
@@ -2061,7 +2107,7 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
                 <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
                   <div className="flex items-center gap-2">
                     <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0" />
-                    <span className="text-sm font-medium text-green-800">The article is being created.</span>
+                    <span className="text-sm font-medium text-green-800">Articles are being generated successfully!</span>
                   </div>
                 </div>
               )}
@@ -2088,7 +2134,7 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
                   ) : (
                     <>
                       <Send className="w-4 h-4 mr-2" />
-                      Create Article
+                      Create Articles
                     </>
                   )}
                 </button>
