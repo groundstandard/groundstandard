@@ -11,6 +11,26 @@ type DashboardProps = {
   onBackToLaunch?: () => void;
 };
 
+// A client's worksheet lists several keywords under one Topic, and each keyword
+// is meant to get its own article (Jade and Bobby, 5 November). They arrive
+// pasted from the sheet's Keyword column: one per line, or a row of cells if
+// more columns came along, in which case the first cell is the keyword. Blank
+// lines, repeats and the column's own header are dropped. At most 10, the most
+// one Create makes; `extra` says how many were left out.
+const MAX_ARTICLES = 10;
+function parseSheetKeywords(text: string): { keywords: string[]; extra: number } {
+  const seen = new Set<string>();
+  const all: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const keyword = line.split('\t')[0].replace(/\s+/g, ' ').trim();
+    const key = keyword.toLowerCase();
+    if (!keyword || key === 'keyword' || key === 'keywords' || seen.has(key)) continue;
+    seen.add(key);
+    all.push(keyword);
+  }
+  return { keywords: all.slice(0, MAX_ARTICLES), extra: Math.max(0, all.length - MAX_ARTICLES) };
+}
+
 export default function Dashboard({ onBackToLaunch }: DashboardProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -123,6 +143,11 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
   const [createError, setCreateError] = useState<string | null>(null);
   const [sendSuccess, setSendSuccess] = useState(false);
   const [keywordCount, setKeywordCount] = useState<string>('1');
+  // The worksheet keywords pasted for this Topic. When there are any, there is
+  // one article per keyword and they set the count.
+  const [sheetKeywords, setSheetKeywords] = useState('');
+  const sheet = useMemo(() => parseSheetKeywords(sheetKeywords), [sheetKeywords]);
+  const countBySheet = sheet.keywords.length > 0;
   // Modal state to view article content
   const [showContentModal, setShowContentModal] = useState(false);
   const [contentToShow, setContentToShow] = useState<string>('');
@@ -1033,7 +1058,8 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
       return;
     }
     const parsed = parseInt((keywordCount || '1') as string, 10);
-    const count = Math.min(10, Math.max(1, Number.isNaN(parsed) ? 1 : parsed));
+    const keywords = sheet.keywords;
+    const count = keywords.length || Math.min(MAX_ARTICLES, Math.max(1, Number.isNaN(parsed) ? 1 : parsed));
     setSending(true);
     setSendError(null);
     setCreateError(null);
@@ -1067,6 +1093,8 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
         body: JSON.stringify({
           keyword: kw,
           count,
+          // Article n is written for keywords[n]; n8n reads it by loop round.
+          keywords: keywords.length ? keywords : undefined,
           business_name: bizName || undefined,
           city: city || undefined,
           state: provState || undefined,
@@ -1114,6 +1142,7 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
       // Inputs cleanup after success
       setKeywordInput('');
       setKeywordCount('1');
+      setSheetKeywords('');
       setBizName('');
       setCity('');
       setProvState('');
@@ -1997,6 +2026,23 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
                   className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 disabled:opacity-50 transition-all duration-200 text-black placeholder-gray-500"
                 />
               </div>
+              <div>
+                <label className="block text-sm font-semibold text-black mb-2">Keywords for this topic (optional)</label>
+                <textarea
+                  value={sheetKeywords}
+                  onChange={(e) => setSheetKeywords(e.target.value)}
+                  placeholder={'Paste the Keyword column from the sheet, one per line.\nEach keyword gets its own article.'}
+                  rows={4}
+                  disabled={sending}
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 disabled:opacity-50 transition-all duration-200 text-black placeholder-gray-500 resize-y"
+                />
+                {sheet.keywords.length > 0 && (
+                  <p className="mt-2 text-xs text-gray-600">
+                    {sheet.keywords.length} {sheet.keywords.length === 1 ? 'keyword' : 'keywords'}, so {sheet.keywords.length} {sheet.keywords.length === 1 ? 'article' : 'articles'}, one for each.
+                    {sheet.extra > 0 && ` The last ${sheet.extra} pasted ${sheet.extra === 1 ? 'is' : 'are'} left out: ${MAX_ARTICLES} is the most at a time.`}
+                  </p>
+                )}
+              </div>
               {/* Optional business context fields */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -2045,7 +2091,10 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-black mb-3">Number of Articles? (max 10)</label>
+                <label className="block text-sm font-semibold text-black mb-3">
+                  Number of Articles? (max 10)
+                  {countBySheet && <span className="font-normal text-gray-500"> set by the keywords</span>}
+                </label>
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
@@ -2054,7 +2103,7 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
                       const next = Math.max(1, (Number.isNaN(v) ? 1 : v) - 1);
                       setKeywordCount(String(next));
                     }}
-                    disabled={sending}
+                    disabled={sending || countBySheet}
                     className="w-10 h-10 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-xl text-black font-semibold disabled:opacity-50 transition-all duration-200 flex items-center justify-center"
                     aria-label="Decrement"
                   >
@@ -2065,14 +2114,14 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
                     min={1}
                     max={10}
                     step={1}
-                    value={keywordCount}
+                    value={countBySheet ? String(sheet.keywords.length) : keywordCount}
                     onChange={(e) => setKeywordCount(e.target.value)}
                     onBlur={(e) => {
                       const v = parseInt(e.target.value || '1', 10);
                       const clamped = Math.min(10, Math.max(1, Number.isNaN(v) ? 1 : v));
                       setKeywordCount(String(clamped));
                     }}
-                    disabled={sending}
+                    disabled={sending || countBySheet}
                     className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 disabled:opacity-50 transition-all duration-200 text-center font-semibold text-black"
                   />
                   <button
@@ -2082,7 +2131,7 @@ export default function Dashboard({ onBackToLaunch }: DashboardProps) {
                       const next = Math.min(10, (Number.isNaN(v) ? 1 : v) + 1);
                       setKeywordCount(String(next));
                     }}
-                    disabled={sending}
+                    disabled={sending || countBySheet}
                     className="w-10 h-10 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-xl text-black font-semibold disabled:opacity-50 transition-all duration-200 flex items-center justify-center"
                     aria-label="Increment"
                   >
