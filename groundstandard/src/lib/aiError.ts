@@ -10,6 +10,7 @@
 // whoever looks into it has all of it.
 
 export type AiErrorKind =
+  | 'duplicate'
   | 'credits'
   | 'auth'
   | 'rate_limit'
@@ -27,7 +28,7 @@ export type AiError = {
   kind: AiErrorKind;
   title: string;
   message: string;
-  // OpenAI, OpenRouter, Anthropic or Google, when the error names one
+  // OpenAI, OpenRouter, Anthropic, Google or Perplexity, when the error names one
   provider: string | null;
   status: number | null;
   // the error as it arrived, made readable
@@ -37,6 +38,9 @@ export type AiError = {
 // The first that matches decides. Credits come before rate limits because
 // OpenAI answers an empty account with a 429 too.
 const KINDS: Array<[AiErrorKind, RegExp]> = [
+  // The Research workflow's own answer when the business already has an
+  // article for the keyword. First, because the title it quotes can say anything.
+  ['duplicate', /already has (an article|\d+ articles)\b.*one article per keyword/],
   ['credits', /insufficient[_ ]quota|exceeded your current quota|check your plan and billing|insufficient (credits|balance|funds)|credit balance is too low|requires more credits|can only afford|out of credits|no credits remaining|add credits to continue|billing[_ ]hard[_ ]limit|payment required/],
   ['auth', /incorrect api key|invalid[_ ]api[_ ]key|authorization failed|no auth credentials|api key (is )?(invalid|expired|revoked)/],
   ['too_long', /context[_ ]length|maximum context|context window|too many tokens|prompt is too long|reduce the length of the messages/],
@@ -74,10 +78,14 @@ const BY_STATUS: Record<number, AiErrorKind> = {
 
 // OpenRouter first: its errors quote the model, and the model's name starts
 // with another provider's ("anthropic/claude-sonnet-4"), hence the (?!\/).
+// Perplexity before OpenAI: an empty Perplexity account answers with OpenAI's
+// own words, "You exceeded your current quota" (the Research and Write
+// workflows' research step, 3 November).
 const PROVIDERS: Array<[string, RegExp]> = [
   ['OpenRouter', /openrouter/],
   ['Google', /generativelanguage|resource_exhausted/],
   ['Anthropic', /anthropic(?!\/)|credit balance is too low/],
+  ['Perplexity', /perplexity(?!\/)/],
   ['OpenAI', /openai(?!\/)|insufficient[_ ]quota|exceeded your current quota/],
 ];
 
@@ -85,6 +93,7 @@ const BILLING: Record<string, string> = {
   OpenAI: 'platform.openai.com, under Settings → Billing',
   OpenRouter: 'openrouter.ai, under Settings → Credits',
   Anthropic: 'console.anthropic.com, under Settings → Billing',
+  Perplexity: 'console.perplexity.ai, under Billing',
 };
 
 // Where n8n and the providers put the words: n8n's { message, description },
@@ -145,6 +154,11 @@ function words(kind: AiErrorKind, provider: string | null, status: number | null
   const code = status ? ` (error ${status})` : '';
   const specific = said && !GENERIC.test(said) ? said : '';
   switch (kind) {
+    case 'duplicate':
+      return {
+        title: 'This keyword already has an article',
+        message: said || 'This business already has an article for this keyword. Open it and use Rewrite to make it better.',
+      };
     case 'credits':
       return {
         title: provider ? `${provider} is out of credits` : 'Out of credits',

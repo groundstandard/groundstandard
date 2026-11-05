@@ -48,6 +48,12 @@ is('  from the Rewrite request too', e.status, 402);
 e = run('anthropic', http(400, { type: 'error', error: { type: 'invalid_request_error', message: 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.' } }));
 is('Anthropic out of credits', e.kind, 'credits');
 is('  names Anthropic', e.provider, 'Anthropic');
+e = run('perplexity via Research', JSON.stringify({ Failed: 'Perplexity could not research this keyword: Bad request - please check your parameters You exceeded your current quota, add credits at https://console.perplexity.ai/project/billing' }));
+is('Perplexity out of credits', e.kind, 'credits');
+is('  names Perplexity, not OpenAI, though the words are OpenAI\'s', e.provider, 'Perplexity');
+has('  says where to top up', e.message, 'console.perplexity.ai');
+e = run('openrouter sonar', http(402, { error: { message: 'Insufficient credits. Add more using https://openrouter.ai/settings/credits', code: 402 } }), 'perplexity/sonar-pro');
+is('  a Perplexity model on OpenRouter is still OpenRouter\'s credits', e.provider, 'OpenRouter');
 e = run('402 alone', http(402, ''));
 is('a bare 402 is still credits', e.kind, 'credits');
 has('  and does not guess whose', e.message, 'say which one');
@@ -110,6 +116,17 @@ e = run('empty 500', http(500, ''));
 is('an empty 500 is the workflow', e.kind, 'workflow');
 e = run('nothing', '');
 is('nothing at all does not throw', e.kind, 'unknown');
+
+console.log('\none article per keyword:');
+e = run('duplicate', '“Adult Jiu-Jitsu” already has an article for Centerline Jiu-Jitsu Chandler: “Why Taking a Time-Out From Training Helps Adult Jiu-Jitsu Students”. It is one article per keyword now, so open it and use Rewrite to make it better.');
+is('a keyword the business already has', e.kind, 'duplicate');
+is('  says so in the title', e.title, 'This keyword already has an article');
+has('  points to Rewrite', e.message, 'use Rewrite');
+has('  keeps the whole message, however long', e.message, 'make it better.');
+e = run('duplicate as sent', JSON.stringify({ Failed: '“Belt ranks, colors and order in BJJ and what each one means” already has 150 articles for Try A Martial Art, the latest “The Meaning Behind Every BJJ Belt Color: Your Path to Mastery Explained”. It is one article per keyword now, so open it and use Rewrite to make it better.' }));
+is('  also as n8n sends it', e.kind, 'duplicate');
+e = run('title says already has', failedBody('Workflow could not be started! Article “Why Your Gym Already Has an Article Problem” was not saved.'));
+is('  but not for a title that only says "already has"', e.kind, 'workflow');
 
 console.log('\nevery case:');
 for (const [name, x] of cases) {
